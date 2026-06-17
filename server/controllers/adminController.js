@@ -18,11 +18,8 @@ exports.getDashboardStats = async (req, res) => {
             created_at: { $gte: startOfDay }
         });
 
-        // Deteksi order fiktif (Sederhana: Tugas selesai dalam waktu kurang dari 2 menit sejak diambil)
-        // Karena ini kompleks untuk dihitung dari schema saat ini, kita gunakan pendekatan query yang lebih mudah atau dummy sementara.
-        // Untuk simulasi, mari hitung quest yang dibatalkan atau quest dengan laporan.
-        // Berhubung field 'reported' belum ada, kita berikan nilai 0 sementara.
-        const fictitiousOrders = 0;
+        // Deteksi order fiktif / dibatalkan (Simulasi: Menghitung jumlah tugas berstatus CANCELED)
+        const fictitiousOrders = await Quest.countDocuments({ status: 'CANCELED' });
 
         res.json({
             success: true,
@@ -74,6 +71,105 @@ exports.toggleUserStatus = async (req, res) => {
             success: true,
             message: `Status pengguna berhasil diubah menjadi ${user.status}`,
             data: user
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Mendapatkan seluruh daftar tugas
+exports.getQuests = async (req, res) => {
+    try {
+        const quests = await Quest.find()
+            .populate('pembuat_id', 'nama_lengkap email no_whatsapp')
+            .populate('pekerja_id', 'nama_lengkap email no_whatsapp')
+            .sort({ created_at: -1 });
+        res.json({
+            success: true,
+            data: quests
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Membatalkan tugas secara paksa oleh Admin
+exports.cancelQuest = async (req, res) => {
+    try {
+        const { questId } = req.params;
+        const quest = await Quest.findById(questId);
+        if (!quest) {
+            return res.status(404).json({ success: false, message: 'Tugas tidak ditemukan' });
+        }
+        quest.status = 'CANCELED';
+        await quest.save();
+        res.json({
+            success: true,
+            message: 'Tugas berhasil dibatalkan secara paksa oleh Admin',
+            data: quest
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Menyusun data statistik laporan teragregasi
+exports.getReportsData = async (req, res) => {
+    try {
+        const totalUsers = await User.countDocuments();
+        const activeUsers = await User.countDocuments({ status: 'ACTIVE' });
+        const suspendedUsers = await User.countDocuments({ status: 'SUSPENDED' });
+
+        const totalQuests = await Quest.countDocuments();
+        const openQuests = await Quest.countDocuments({ status: 'OPEN' });
+        const takenQuests = await Quest.countDocuments({ status: 'TAKEN' });
+        const completedQuests = await Quest.countDocuments({ status: 'COMPLETED' });
+        const canceledQuests = await Quest.countDocuments({ status: 'CANCELED' });
+
+        // Hitung perputaran uang dari tugas yang selesai
+        const completedList = await Quest.find({ status: 'COMPLETED' })
+            .populate('pembuat_id', 'nama_lengkap')
+            .populate('pekerja_id', 'nama_lengkap');
+
+        let totalUpah = 0;
+        let totalTalangan = 0;
+        completedList.forEach(q => {
+            totalUpah += q.upah_jasa || 0;
+            totalTalangan += q.nominal_talangan || 0;
+        });
+
+        // Hitung tugas berdasarkan kategori
+        const categoryCounts = await Quest.aggregate([
+            { $group: { _id: "$kategori", count: { $sum: 1 } } }
+        ]);
+
+        // Daftar pengguna dan tugas untuk visualisasi/cetak
+        const users = await User.find().sort({ created_at: -1 });
+        const quests = await Quest.find()
+            .populate('pembuat_id', 'nama_lengkap email no_whatsapp')
+            .populate('pekerja_id', 'nama_lengkap email no_whatsapp')
+            .sort({ created_at: -1 });
+
+        res.json({
+            success: true,
+            data: {
+                summary: {
+                    totalUsers,
+                    activeUsers,
+                    suspendedUsers,
+                    totalQuests,
+                    openQuests,
+                    takenQuests,
+                    completedQuests,
+                    canceledQuests,
+                    totalUpah,
+                    totalTalangan,
+                    totalPerputaranUang: totalUpah + totalTalangan
+                },
+                categories: categoryCounts,
+                users,
+                quests
+            }
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

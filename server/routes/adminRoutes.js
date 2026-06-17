@@ -11,4 +11,13 @@ router.get('/users', adminController.getUsers);
 // Route untuk block/suspend pengguna
 router.put('/users/:userId/toggle-status', adminController.toggleUserStatus);
 
+// Route untuk memantau semua tugas
+router.get('/quests', adminController.getQuests);
+
+// Route untuk membatalkan tugas secara paksa
+router.put('/quests/:questId/cancel', adminController.cancelQuest);
+
+// Route untuk mendapatkan data pelaporan teragregasi
+router.get('/reports/data', adminController.getReportsData);
+
 module.exports = router;
