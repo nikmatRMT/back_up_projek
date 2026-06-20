@@ -30,61 +30,79 @@ const Riwayat = () => {
     };
 
     return (
-        <div style={{ padding: '20px', paddingBottom: '80px', maxWidth: '400px', margin: '0 auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
-                <button 
-                    onClick={() => navigate('/profil')} 
-                    style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: 'var(--text-main)', cursor: 'pointer', marginRight: '10px' }}
-                >
-                    ←
-                </button>
-                <h2 style={{ color: 'var(--text-main)', margin: 0 }}>Riwayat Tugas</h2>
-            </div>
+        <div style={{ backgroundColor: 'var(--bg-main)', minHeight: '100vh', paddingBottom: '40px' }}>
 
-            {loading ? (
-                <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Memuat riwayat...</p>
-            ) : historyList.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: 'var(--bg-card)', borderRadius: '12px' }}>
-                    <div style={{ fontSize: '3rem', marginBottom: '10px' }}>📜</div>
-                    <h3 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>Belum Ada Riwayat</h3>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Selesaikan tugas sebagai klien atau pekerja untuk melihat catatan riwayat di sini.</p>
-                </div>
-            ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {historyList.map((quest) => {
-                        const isKlien = quest.pembuat_id === MY_USER_ID;
-                        const totalUang = quest.upah_jasa + (quest.nominal_talangan || 0);
-                        
-                        return (
-                            <div key={quest._id} style={{
-                                backgroundColor: 'var(--bg-card)',
-                                padding: '16px',
-                                borderRadius: '12px',
-                                borderLeft: isKlien ? '4px solid #F59E0B' : '4px solid #10B981', // Kuning (Keluar Uang), Hijau (Dapat Uang)
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
-                            }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: isKlien ? '#D97706' : '#059669', backgroundColor: isKlien ? '#FEF3C7' : '#D1FAE5', padding: '2px 8px', borderRadius: '12px' }}>
-                                        {isKlien ? 'SAYA KLIEN' : 'SAYA PEKERJA'}
-                                    </span>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        {new Date(quest.created_at).toLocaleDateString('id-ID')}
-                                    </span>
+            {/* Header */}
+            <header style={{ 
+                display: 'flex', alignItems: 'center', gap: '14px', 
+                padding: '20px', backgroundColor: 'var(--surface)', 
+                borderBottom: '2px solid var(--border-ink)' 
+            }}>
+                <button onClick={() => navigate('/profil')} style={{ 
+                    background: 'var(--bg-main)', border: '2px solid var(--border-ink)', 
+                    borderRadius: '50px', width: '36px', height: '36px', cursor: 'pointer', 
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-main)'
+                }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+                    </svg>
+                </button>
+                <h2>Riwayat Tugas</h2>
+            </header>
+
+            <div style={{ padding: '20px' }}>
+                {loading ? (
+                    <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '32px 0' }}>Memuat riwayat...</p>
+                ) : historyList.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '48px 20px' }}>
+                        <div style={{ 
+                            width: '64px', height: '64px', 
+                            backgroundColor: 'var(--color-sandstone)', 
+                            borderRadius: '50px', 
+                            border: '2px solid var(--border-ink)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                            margin: '0 auto 16px' 
+                        }}>
+                            <span style={{ fontSize: '24px' }}>📜</span>
+                        </div>
+                        <h3 style={{ marginBottom: '8px' }}>Belum Ada Riwayat</h3>
+                        <p style={{ fontSize: '14px' }}>Selesaikan tugas sebagai klien atau pekerja untuk melihat catatan riwayat di sini.</p>
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        {historyList.map((quest) => {
+                            const isKlien = quest.pembuat_id === MY_USER_ID;
+                            const totalUang = quest.upah_jasa + (quest.nominal_talangan || 0);
+                            
+                            return (
+                                <div key={quest._id} className="clean-card" style={{ padding: '18px 21px' }}>
+                                    {/* Role & Date */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                        <span className={`badge ${isKlien ? 'badge-sunshine' : 'badge-green'}`}>
+                                            {isKlien ? 'SAYA KLIEN' : 'SAYA PEKERJA'}
+                                        </span>
+                                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                            {new Date(quest.created_at).toLocaleDateString('id-ID')}
+                                        </span>
+                                    </div>
+
+                                    <h3 style={{ fontSize: '1rem', marginBottom: '4px', textTransform: 'uppercase' }}>{quest.kategori}</h3>
+                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: '1.5' }}>{quest.deskripsi}</p>
+                                    
+                                    <hr className="divider-dashed" style={{ margin: '0 0 12px' }} />
+                                    
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '13px', color: 'var(--text-main)' }}>Total Transaksi:</span>
+                                        <span style={{ fontSize: '1rem', fontWeight: '800', color: isKlien ? 'var(--accent-coral)' : 'var(--accent-green)' }}>
+                                            {isKlien ? '-' : '+'} Rp {totalUang.toLocaleString('id-ID')}
+                                        </span>
+                                    </div>
                                 </div>
-                                <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', marginBottom: '4px' }}>{quest.kategori}</h3>
-                                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '12px' }}>{quest.deskripsi}</p>
-                                
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border-light)', paddingTop: '12px' }}>
-                                    <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>Total Transaksi:</span>
-                                    <span style={{ fontSize: '1rem', fontWeight: 'bold', color: isKlien ? '#DC2626' : '#10B981' }}>
-                                        {isKlien ? '-' : '+'} Rp {totalUang.toLocaleString('id-ID')}
-                                    </span>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

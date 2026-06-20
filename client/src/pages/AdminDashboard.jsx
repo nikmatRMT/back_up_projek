@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -61,10 +62,24 @@ export default function AdminDashboard() {
             const res = await axios.put(`/api/admin/users/${userId}/toggle-status`);
             if (res.data.success) {
                 setUsers(users.map(u => u._id === userId ? { ...u, status: res.data.data.status } : u));
-                alert("Status pengguna berhasil diubah.");
+                toast.error("Status pengguna berhasil diubah.");
             }
         } catch (err) {
-            alert(err.response?.data?.message || "Gagal mengubah status");
+            toast.error(err.response?.data?.message || "Gagal mengubah status");
+        }
+    };
+
+    const handleDeleteUser = async (userId) => {
+        if (!window.confirm("PERINGATAN: Yakin ingin MENGHAPUS pengguna ini secara permanen? Semua tugas yang terkait juga akan ikut terhapus. Aksi ini tidak dapat dibatalkan!")) return;
+        try {
+            const res = await axios.delete(`/api/admin/users/${userId}`);
+            if (res.data.success) {
+                setUsers(users.filter(u => u._id !== userId));
+                toast.error("Akun pengguna berhasil dihapus secara permanen.");
+                fetchAdminData(); // Refresh data statistik dashboard
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Gagal menghapus pengguna");
         }
     };
 
@@ -77,10 +92,10 @@ export default function AdminDashboard() {
                 // Reload stats
                 const statsRes = await axios.get('/api/admin/dashboard');
                 if (statsRes.data.success) setStats(statsRes.data.data);
-                alert("Tugas berhasil dibatalkan secara paksa oleh Admin.");
+                toast.error("Tugas berhasil dibatalkan secara paksa oleh Admin.");
             }
         } catch (err) {
-            alert(err.response?.data?.message || "Gagal membatalkan tugas");
+            toast.error(err.response?.data?.message || "Gagal membatalkan tugas");
         }
     };
 
@@ -219,8 +234,116 @@ export default function AdminDashboard() {
                     ]
                 };
             }
+            case 'daily_activity': {
+                const daily = {};
+                quests.forEach(q => {
+                    const date = new Date(q.created_at).toLocaleDateString('id-ID');
+                    if(!daily[date]) daily[date] = { date, dibuat: 0, selesai: 0, batal: 0 };
+                    daily[date].dibuat++;
+                    if(q.status === 'COMPLETED') daily[date].selesai++;
+                    if(q.status === 'CANCELED') daily[date].batal++;
+                });
+                const rows = Object.values(daily).map((d, i) => [
+                    i + 1, d.date, d.dibuat, d.selesai, d.batal
+                ]);
+                return {
+                    title: 'LAPORAN AKTIVITAS HARIAN SISTEM',
+                    number: `LP-ACT-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+                    headers: [
+                        { name: 'No', align: 'center' },
+                        { name: 'Tanggal', align: 'center' },
+                        { name: 'Tugas Dibuat', align: 'center' },
+                        { name: 'Tugas Selesai', align: 'center' },
+                        { name: 'Tugas Dibatalkan', align: 'center' }
+                    ],
+                    rows: rows,
+                    summaries: [
+                        { label: 'Total Hari Aktif', value: rows.length },
+                        { label: 'Total Tugas Dibuat', value: quests.length }
+                    ]
+                };
+            }
+            case 'worker_performance': {
+                const workers = {};
+                quests.filter(q => q.pekerja_id).forEach(q => {
+                    const wid = q.pekerja_id._id;
+                    if(!workers[wid]) workers[wid] = { name: q.pekerja_id.nama_lengkap, no_wa: q.pekerja_id.no_whatsapp, diambil: 0, selesai: 0, batal: 0, upah: 0 };
+                    workers[wid].diambil++;
+                    if(q.status === 'COMPLETED') { workers[wid].selesai++; workers[wid].upah += (q.upah_jasa || 0); }
+                    if(q.status === 'CANCELED') workers[wid].batal++;
+                });
+                const rows = Object.values(workers).map((w, i) => [
+                    i + 1, w.name, w.no_wa, w.selesai, w.batal, `${w.diambil ? Math.round((w.selesai/w.diambil)*100) : 0}%`, `Rp ${w.upah.toLocaleString('id-ID')}`
+                ]);
+                return {
+                    title: 'LAPORAN PERFORMA PEKERJA',
+                    number: `LP-WRK-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+                    headers: [
+                        { name: 'No', align: 'center' },
+                        { name: 'Nama Pekerja' },
+                        { name: 'No. WhatsApp' },
+                        { name: 'Tugas Selesai', align: 'center' },
+                        { name: 'Tugas Batal', align: 'center' },
+                        { name: 'Rasio Sukses', align: 'center' },
+                        { name: 'Total Upah (Rp)', align: 'right' }
+                    ],
+                    rows: rows,
+                    summaries: [
+                        { label: 'Total Pekerja Aktif', value: Object.keys(workers).length }
+                    ]
+                };
+            }
+            case 'account_security': {
+                const rows = users.map((u, i) => [
+                    i + 1, u.nama_lengkap, u.email, u.no_whatsapp || 'Belum diisi', 'Tervalidasi Google', u.status || 'Aktif'
+                ]);
+                return {
+                    title: 'LAPORAN VERIFIKASI AKUN & KEAMANAN',
+                    number: `LP-SEC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+                    headers: [
+                        { name: 'No', align: 'center' },
+                        { name: 'Nama Pengguna' },
+                        { name: 'Email (Google)' },
+                        { name: 'No. WA' },
+                        { name: 'Verifikasi SSO' },
+                        { name: 'Status Akun' }
+                    ],
+                    rows: rows,
+                    summaries: [
+                        { label: 'Total Akun Terverifikasi', value: users.length }
+                    ]
+                };
+            }
+            case 'popular_categories': {
+                const cats = {};
+                quests.forEach(q => {
+                    const c = q.kategori;
+                    if(!cats[c]) cats[c] = { name: c, total: 0, selesai: 0, upah: 0 };
+                    cats[c].total++;
+                    if(q.status === 'COMPLETED') { cats[c].selesai++; cats[c].upah += (q.upah_jasa || 0); }
+                });
+                const rows = Object.values(cats).map((c, i) => [
+                    i + 1, c.name.toUpperCase(), c.total, c.selesai, `${c.total ? Math.round((c.selesai/c.total)*100) : 0}%`, `Rp ${c.selesai ? Math.round(c.upah/c.selesai).toLocaleString('id-ID') : 0}`
+                ]);
+                return {
+                    title: 'LAPORAN KATEGORI TUGAS TERPOPULER',
+                    number: `LP-CAT-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+                    headers: [
+                        { name: 'No', align: 'center' },
+                        { name: 'Kategori Tugas' },
+                        { name: 'Jumlah Tugas', align: 'center' },
+                        { name: 'Tugas Selesai', align: 'center' },
+                        { name: 'Rasio Selesai', align: 'center' },
+                        { name: 'Rata-rata Upah', align: 'right' }
+                    ],
+                    rows: rows,
+                    summaries: [
+                        { label: 'Total Kategori', value: Object.keys(cats).length }
+                    ]
+                };
+            }
             default:
-                return {};
+                return null;
         }
     };
 
@@ -260,20 +383,20 @@ export default function AdminDashboard() {
     if (selectedReport) {
         const reportData = getReportData(selectedReport);
         return (
-            <div style={{ padding: '30px 20px', minHeight: '100vh', backgroundColor: '#F1F5F9', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ padding: '30px 20px', minHeight: '100vh', backgroundColor: 'var(--color-cream-paper)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <style>{printStyles}</style>
                 
                 {/* Control Panel (Hanya di layar, tidak ikut diprint) */}
-                <div className="no-print" style={{ width: '100%', maxWidth: '850px', display: 'flex', justifyContent: 'space-between', marginBottom: '20px', padding: '16px 24px', backgroundColor: '#fff', border: '1px solid var(--border-light)', borderRadius: '12px', boxShadow: 'var(--shadow-soft)' }}>
+                <div className="no-print" style={{ width: '100%', maxWidth: '850px', display: 'flex', justifyContent: 'space-between', marginBottom: '20px', padding: '16px 24px', backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '50px' }}>
                     <button 
                         onClick={() => setSelectedReport(null)}
-                        style={{ padding: '10px 20px', backgroundColor: '#64748B', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}
+                        style={{ padding: '10px 20px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '600', fontFamily: 'var(--font-inter)' }}
                     >
                         ← Kembali ke Dashboard
                     </button>
                     <button 
                         onClick={() => window.print()}
-                        style={{ padding: '10px 20px', backgroundColor: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}
+                        style={{ padding: '10px 20px', backgroundColor: 'var(--color-coral-pop)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '600', fontFamily: 'var(--font-inter)' }}
                     >
                         🖨️ Cetak / Simpan PDF
                     </button>
@@ -310,13 +433,13 @@ export default function AdminDashboard() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', marginBottom: '28px' }}>
                         <thead>
                             <tr style={{ backgroundColor: '#1E3A8A', color: '#fff' }}>
-                                {reportData.headers.map((h, i) => (
+                                {reportData.headers && reportData.headers.map((h, i) => (
                                     <th key={i} style={{ border: '1px solid #CBD5E1', padding: '10px 12px', textAlign: h.align || 'left', fontWeight: '700' }}>{h.name}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
-                            {reportData.rows.length === 0 ? (
+                            {reportData.rows && reportData.rows.length === 0 ? (
                                 <tr>
                                     <td colSpan={reportData.headers.length} style={{ border: '1px solid #CBD5E1', padding: '20px', textAlign: 'center', color: '#64748B', fontWeight: '600' }}>Tidak ada data laporan.</td>
                                 </tr>
@@ -360,13 +483,13 @@ export default function AdminDashboard() {
     }
 
     return (
-        <div className="fade-up" style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#F8FAFC', width: '100vw', maxWidth: 'none' }}>
+        <div className="fade-up" style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--color-cream-paper)', width: '100vw', maxWidth: 'none' }}>
             
             {/* Sidebar */}
-            <aside style={{ width: '260px', backgroundColor: '#fff', borderRight: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', boxShadow: '2px 0 8px rgba(0,0,0,0.02)' }}>
-                <div style={{ padding: '24px', borderBottom: '1px solid var(--border-light)' }}>
-                    <h2 style={{ fontSize: '1.2rem', color: 'var(--text-main)', fontWeight: '800' }}>ADMINISTRATOR</h2>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Micro-Tasking Panel</p>
+            <aside style={{ width: '260px', backgroundColor: 'var(--color-pure-white)', borderRight: '2px solid var(--color-ink-black)', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '24px', borderBottom: '2px solid var(--color-ink-black)' }}>
+                    <h2 style={{ fontSize: '1.2rem', color: 'var(--color-ink-black)', fontWeight: '800' }}>ADMINISTRATOR</h2>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--color-stone-gray)' }}>Micro-Tasking Panel</p>
                 </div>
                 
                 <nav style={{ padding: '20px 0', flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -375,54 +498,54 @@ export default function AdminDashboard() {
                         style={{ 
                             width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
                             display: 'block', padding: '16px 24px', transition: 'all 0.2s',
-                            backgroundColor: activeTab === 'dashboard' ? 'var(--primary)' : 'transparent', 
-                            color: activeTab === 'dashboard' ? '#fff' : 'var(--text-muted)', 
-                            fontWeight: activeTab === 'dashboard' ? '700' : '500' 
+                            backgroundColor: activeTab === 'dashboard' ? 'var(--color-fresh-grass)' : 'transparent', 
+                            color: activeTab === 'dashboard' ? 'var(--color-ink-black)' : 'var(--color-stone-gray)', 
+                            fontWeight: activeTab === 'dashboard' ? '700' : '500', fontFamily: 'var(--font-inter)' 
                         }}
                     >
-                        📊 Dashboard
+                        Dashboard
                     </button>
                     <button 
                         onClick={() => { setActiveTab('users'); setSearchQuery(''); }}
                         style={{ 
                             width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
                             display: 'block', padding: '16px 24px', transition: 'all 0.2s',
-                            backgroundColor: activeTab === 'users' ? 'var(--primary)' : 'transparent', 
-                            color: activeTab === 'users' ? '#fff' : 'var(--text-muted)', 
-                            fontWeight: activeTab === 'users' ? '700' : '500' 
+                            backgroundColor: activeTab === 'users' ? 'var(--color-fresh-grass)' : 'transparent', 
+                            color: activeTab === 'users' ? 'var(--color-ink-black)' : 'var(--color-stone-gray)', 
+                            fontWeight: activeTab === 'users' ? '700' : '500', fontFamily: 'var(--font-inter)' 
                         }}
                     >
-                        👥 Kelola Pengguna
+                        Kelola Pengguna
                     </button>
                     <button 
                         onClick={() => { setActiveTab('quests'); setSearchQuery(''); }}
                         style={{ 
                             width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
                             display: 'block', padding: '16px 24px', transition: 'all 0.2s',
-                            backgroundColor: activeTab === 'quests' ? 'var(--primary)' : 'transparent', 
-                            color: activeTab === 'quests' ? '#fff' : 'var(--text-muted)', 
-                            fontWeight: activeTab === 'quests' ? '700' : '500' 
+                            backgroundColor: activeTab === 'quests' ? 'var(--color-fresh-grass)' : 'transparent', 
+                            color: activeTab === 'quests' ? 'var(--color-ink-black)' : 'var(--color-stone-gray)', 
+                            fontWeight: activeTab === 'quests' ? '700' : '500', fontFamily: 'var(--font-inter)' 
                         }}
                     >
-                        💼 Pantau Transaksi
+                        Pantau Transaksi
                     </button>
                     <button 
                         onClick={() => { setActiveTab('reports'); setSearchQuery(''); }}
                         style={{ 
                             width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
                             display: 'block', padding: '16px 24px', transition: 'all 0.2s',
-                            backgroundColor: activeTab === 'reports' ? 'var(--primary)' : 'transparent', 
-                            color: activeTab === 'reports' ? '#fff' : 'var(--text-muted)', 
-                            fontWeight: activeTab === 'reports' ? '700' : '500' 
+                            backgroundColor: activeTab === 'reports' ? 'var(--color-fresh-grass)' : 'transparent', 
+                            color: activeTab === 'reports' ? 'var(--color-ink-black)' : 'var(--color-stone-gray)', 
+                            fontWeight: activeTab === 'reports' ? '700' : '500', fontFamily: 'var(--font-inter)' 
                         }}
                     >
-                        🖨️ Laporan Cetak
+                        Laporan Cetak
                     </button>
                 </nav>
 
-                <div style={{ padding: '20px 24px', borderTop: '1px solid var(--border-light)' }}>
+                <div style={{ padding: '20px 24px', borderTop: '2px solid var(--color-ink-black)' }}>
                     <a href="#" onClick={(e) => {e.preventDefault(); navigate('/');}} style={{ color: 'var(--text-muted)', textDecoration: 'none', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        🚪 Logout
+                        Logout
                     </a>
                 </div>
             </aside>
@@ -431,7 +554,7 @@ export default function AdminDashboard() {
             <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
                 
                 {/* Topbar */}
-                <header style={{ padding: '20px 32px', backgroundColor: '#fff', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <header style={{ padding: '20px 32px', backgroundColor: 'var(--color-pure-white)', borderBottom: '2px solid var(--color-ink-black)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h2 style={{ fontSize: '1.3rem', color: 'var(--text-main)', fontWeight: '700' }}>
                         {activeTab === 'dashboard' && "Statistik Sistem Utama"}
                         {activeTab === 'users' && "Kelola Pengguna Aplikasi"}
@@ -447,7 +570,7 @@ export default function AdminDashboard() {
                                 placeholder={activeTab === 'users' ? "Cari nama, email, whatsapp..." : "Cari deskripsi, kategori, user..."}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                style={{ padding: '8px 16px', border: '1px solid var(--border-light)', borderRadius: '8px', outline: 'none', width: '280px', fontSize: '0.9rem' }} 
+                                style={{ padding: '8px 16px', border: '2px solid var(--color-ink-black)', borderRadius: '50px', outline: 'none', width: '280px', fontSize: '0.9rem', fontFamily: 'var(--font-inter)' }} 
                             />
                             {searchQuery && (
                                 <button 
@@ -467,32 +590,32 @@ export default function AdminDashboard() {
                     {activeTab === 'dashboard' && (
                         <div className="fade-up">
                             {/* Greeting Banner */}
-                            <div className="clean-card" style={{ marginBottom: '32px', background: 'linear-gradient(135deg, #1E3A8A 0%, #172554 100%)', color: '#fff', border: 'none' }}>
-                                <h1 style={{ color: '#fff', fontSize: '1.8rem', marginBottom: '8px' }}>Selamat Datang Kembali, Admin nikmatRMT!</h1>
-                                <p style={{ color: '#93C5FD', fontSize: '0.95rem' }}>Pantau transaksi harian, amankan transaksi, kelola pengguna yang bermasalah, dan cetak berkas laporan skripsi dengan mudah.</p>
+                            <div className="clean-card" style={{ marginBottom: '32px', background: 'var(--color-ink-black)', color: '#fff', border: '2px solid var(--color-ink-black)' }}>
+                                <h1 style={{ color: 'var(--color-pure-white)', fontSize: '1.8rem', marginBottom: '8px' }}>Selamat Datang Kembali, Admin nikmatRMT!</h1>
+                                <p style={{ color: 'var(--color-cream-paper)', fontSize: '0.95rem', opacity: 0.9 }}>Pantau transaksi harian, amankan transaksi, kelola pengguna yang bermasalah, dan cetak berkas laporan dengan mudah.</p>
                             </div>
 
                             {/* Stat Cards Grid */}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', marginBottom: '32px' }}>
-                                <div style={{ backgroundColor: '#fff', padding: '24px', border: '1px solid var(--border-light)', borderRadius: '12px', borderTop: '4px solid var(--primary)', boxShadow: 'var(--shadow-soft)' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', padding: '24px', border: '2px solid var(--color-ink-black)', borderRadius: '24px', borderTop: '4px solid var(--color-fresh-grass)' }}>
                                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '700', marginBottom: '8px' }}>TOTAL PENGGUNA</p>
                                     <h1 style={{ fontSize: '2.2rem', color: 'var(--text-main)', marginBottom: '4px' }}>{stats.totalUsers}</h1>
                                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Terdaftar di sistem</p>
                                 </div>
-                                <div style={{ backgroundColor: '#fff', padding: '24px', border: '1px solid var(--border-light)', borderRadius: '12px', borderTop: '4px solid var(--secondary)', boxShadow: 'var(--shadow-soft)' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', padding: '24px', border: '2px solid var(--color-ink-black)', borderRadius: '24px', borderTop: '4px solid var(--color-coral-pop)' }}>
                                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '700', marginBottom: '8px' }}>TUGAS BERJALAN</p>
                                     <h1 style={{ fontSize: '2.2rem', color: 'var(--text-main)', marginBottom: '4px' }}>{stats.activeQuests}</h1>
                                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sedang dikerjakan pekerja</p>
                                 </div>
-                                <div style={{ backgroundColor: '#fff', padding: '24px', border: '1px solid var(--border-light)', borderRadius: '12px', borderTop: '4px solid #3B82F6', boxShadow: 'var(--shadow-soft)' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', padding: '24px', border: '2px solid var(--color-ink-black)', borderRadius: '24px', borderTop: '4px solid var(--color-sky-pop)' }}>
                                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '700', marginBottom: '8px' }}>SELESAI HARI INI</p>
                                     <h1 style={{ fontSize: '2.2rem', color: 'var(--text-main)', marginBottom: '4px' }}>{stats.completedToday}</h1>
                                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Transaksi sukses hari ini</p>
                                 </div>
-                                <div style={{ backgroundColor: '#fff', padding: '24px', border: '1px solid var(--border-light)', borderRadius: '12px', borderTop: '4px solid #EF4444', boxShadow: 'var(--shadow-soft)' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', padding: '24px', border: '2px solid var(--color-ink-black)', borderRadius: '24px', borderTop: '4px solid var(--color-coral-pop)' }}>
                                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '700', marginBottom: '8px' }}>ORDER DIBATALKAN</p>
                                     <h1 style={{ fontSize: '2.2rem', color: 'var(--text-main)', marginBottom: '4px' }}>{quests.filter(q => q.status === 'CANCELED').length}</h1>
-                                    <p style={{ fontSize: '0.8rem', color: '#EF4444', fontWeight: '600' }}>⚠️ Total tugas batal</p>
+                                    <p style={{ fontSize: '0.8rem', color: '#EF4444', fontWeight: '600' }}>Total tugas batal</p>
                                 </div>
                             </div>
 
@@ -547,7 +670,7 @@ export default function AdminDashboard() {
                             
                             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                                 <thead>
-                                    <tr style={{ backgroundColor: 'var(--primary)', color: '#fff' }}>
+                                    <tr style={{ backgroundColor: 'var(--color-ink-black)', color: '#fff' }}>
                                         <th style={{ padding: '16px 24px', fontWeight: '700', width: '60px' }}>No</th>
                                         <th style={{ padding: '16px 24px', fontWeight: '700' }}>Nama Lengkap</th>
                                         <th style={{ padding: '16px 24px', fontWeight: '700' }}>No. WhatsApp</th>
@@ -584,15 +707,26 @@ export default function AdminDashboard() {
                                                 </td>
                                                 <td style={{ padding: '16px 24px', textAlign: 'center' }}>
                                                     {user.role !== 'admin' ? (
-                                                        <button 
-                                                            onClick={() => toggleStatus(user._id)}
-                                                            style={{ 
-                                                                border: 'none', background: user.status === 'ACTIVE' ? '#EF4444' : 'var(--secondary)', 
-                                                                color: '#fff', padding: '6px 14px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
-                                                            }}
-                                                        >
-                                                            {user.status === 'ACTIVE' ? 'Blokir' : 'Aktifkan'}
-                                                        </button>
+                                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                                            <button 
+                                                                onClick={() => toggleStatus(user._id)}
+                                                                style={{ 
+                                                                    border: 'none', background: user.status === 'ACTIVE' ? '#F59E0B' : '#10B981', 
+                                                                    color: '#fff', padding: '6px 14px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
+                                                                }}
+                                                            >
+                                                                {user.status === 'ACTIVE' ? 'Blokir' : 'Buka Blokir'}
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleDeleteUser(user._id)}
+                                                                style={{ 
+                                                                    border: 'none', background: '#EF4444', 
+                                                                    color: '#fff', padding: '6px 14px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
+                                                                }}
+                                                            >
+                                                                Hapus
+                                                            </button>
+                                                        </div>
                                                     ) : (
                                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>-</span>
                                                     )}
@@ -638,7 +772,7 @@ export default function AdminDashboard() {
                                 
                                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                                     <thead>
-                                        <tr style={{ backgroundColor: 'var(--primary)', color: '#fff' }}>
+                                        <tr style={{ backgroundColor: 'var(--color-ink-black)', color: '#fff' }}>
                                             <th style={{ padding: '16px 20px', fontWeight: '700', width: '50px' }}>No</th>
                                             <th style={{ padding: '16px 20px', fontWeight: '700', width: '110px' }}>Kategori</th>
                                             <th style={{ padding: '16px 20px', fontWeight: '700' }}>Deskripsi Tugas</th>
@@ -717,57 +851,113 @@ export default function AdminDashboard() {
                             
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                                 
-                                <div className="clean-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '4px solid var(--primary)' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '6px solid var(--color-fresh-grass)' }}>
                                     <div>
-                                        <div style={{ fontSize: '2rem', marginBottom: '12px' }}>👥</div>
-                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Laporan 1: Data Pengguna</h3>
-                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>Mencetak berkas data statistik seluruh user klien dan pekerja yang telah terdaftar di sistem.</p>
+                                        <span style={{ display: 'inline-block', padding: '4px 14px', backgroundColor: 'var(--color-fresh-grass)', color: 'var(--color-ink-black)', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '800', marginBottom: '14px', fontFamily: 'var(--font-inter)' }}>LAPORAN 1</span>
+                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Data Pengguna</h3>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>Mencetak berkas data statistik seluruh user klien dan pekerja yang telah terdaftar di sistem.</p>
                                     </div>
                                     <button 
                                         onClick={() => setSelectedReport('users')}
-                                        style={{ width: '100%', padding: '10px 16px', backgroundColor: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem' }}
+                                        style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}
                                     >
                                         Buka & Cetak Laporan
                                     </button>
                                 </div>
 
-                                <div className="clean-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '4px solid var(--secondary)' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '6px solid var(--color-sky-pop)' }}>
                                     <div>
-                                        <div style={{ fontSize: '2rem', marginBottom: '12px' }}>✅</div>
-                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Laporan 2: Transaksi Selesai</h3>
-                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>Mencetak riwayat tugas yang telah selesai diselesaikan dengan pencatatan status COMPLETED.</p>
+                                        <span style={{ display: 'inline-block', padding: '4px 14px', backgroundColor: 'var(--color-sky-pop)', color: 'var(--color-pure-white)', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '800', marginBottom: '14px', fontFamily: 'var(--font-inter)' }}>LAPORAN 2</span>
+                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Transaksi Selesai</h3>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>Mencetak riwayat tugas yang telah selesai diselesaikan dengan pencatatan status COMPLETED.</p>
                                     </div>
                                     <button 
                                         onClick={() => setSelectedReport('completed')}
-                                        style={{ width: '100%', padding: '10px 16px', backgroundColor: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem' }}
+                                        style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}
                                     >
                                         Buka & Cetak Laporan
                                     </button>
                                 </div>
 
-                                <div className="clean-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '4px solid #EF4444' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '6px solid var(--color-coral-pop)' }}>
                                     <div>
-                                        <div style={{ fontSize: '2rem', marginBottom: '12px' }}>⚠️</div>
-                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Laporan 3: Pembatalan & Order Fiktif</h3>
-                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>Mencetak data tugas yang dibatalkan oleh pengguna atau dibatalkan paksa karena order fiktif.</p>
+                                        <span style={{ display: 'inline-block', padding: '4px 14px', backgroundColor: 'var(--color-coral-pop)', color: 'var(--color-pure-white)', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '800', marginBottom: '14px', fontFamily: 'var(--font-inter)' }}>LAPORAN 3</span>
+                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Pembatalan & Order Fiktif</h3>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>Mencetak data tugas yang dibatalkan oleh pengguna atau dibatalkan paksa karena order fiktif.</p>
                                     </div>
                                     <button 
                                         onClick={() => setSelectedReport('canceled')}
-                                        style={{ width: '100%', padding: '10px 16px', backgroundColor: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem' }}
+                                        style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}
                                     >
                                         Buka & Cetak Laporan
                                     </button>
                                 </div>
 
-                                <div className="clean-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '4px solid #EAB308' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '6px solid var(--color-sunshine-pop)' }}>
                                     <div>
-                                        <div style={{ fontSize: '2rem', marginBottom: '12px' }}>💸</div>
-                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Laporan 4: Perputaran Uang</h3>
-                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>Mencetak akumulasi upah jasa dan nominal talangan dari seluruh sirkulasi dana di sistem.</p>
+                                        <span style={{ display: 'inline-block', padding: '4px 14px', backgroundColor: 'var(--color-sunshine-pop)', color: 'var(--color-ink-black)', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '800', marginBottom: '14px', fontFamily: 'var(--font-inter)' }}>LAPORAN 4</span>
+                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Perputaran Uang</h3>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>Mencetak akumulasi upah jasa dan nominal talangan dari seluruh sirkulasi dana di sistem.</p>
                                     </div>
                                     <button 
                                         onClick={() => setSelectedReport('turnover')}
-                                        style={{ width: '100%', padding: '10px 16px', backgroundColor: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem' }}
+                                        style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}
+                                    >
+                                        Buka & Cetak Laporan
+                                    </button>
+                                </div>
+
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '6px solid var(--color-fresh-grass)' }}>
+                                    <div>
+                                        <span style={{ display: 'inline-block', padding: '4px 14px', backgroundColor: 'var(--color-fresh-grass)', color: 'var(--color-ink-black)', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '800', marginBottom: '14px', fontFamily: 'var(--font-inter)' }}>LAPORAN 5</span>
+                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Aktifitas Harian Sistem</h3>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>Mencatat jumlah tugas dibuat, diambil, selesai, dibatalkan, beserta data pengguna login dan registrasi baru.</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSelectedReport('daily_activity')}
+                                        style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}
+                                    >
+                                        Buka & Cetak Laporan
+                                    </button>
+                                </div>
+
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '6px solid var(--color-sky-pop)' }}>
+                                    <div>
+                                        <span style={{ display: 'inline-block', padding: '4px 14px', backgroundColor: 'var(--color-sky-pop)', color: 'var(--color-pure-white)', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '800', marginBottom: '14px', fontFamily: 'var(--font-inter)' }}>LAPORAN 6</span>
+                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Performa Pekerja</h3>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>Mengkalkulasi rasio kesuksesan, total tugas selesai, total upah, dan total jarak tempuh per pekerja aktif.</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSelectedReport('worker_performance')}
+                                        style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}
+                                    >
+                                        Buka & Cetak Laporan
+                                    </button>
+                                </div>
+
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '6px solid var(--color-coral-pop)' }}>
+                                    <div>
+                                        <span style={{ display: 'inline-block', padding: '4px 14px', backgroundColor: 'var(--color-coral-pop)', color: 'var(--color-pure-white)', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '800', marginBottom: '14px', fontFamily: 'var(--font-inter)' }}>LAPORAN 7</span>
+                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Verifikasi Akun & Keamanan</h3>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>Memantau status verifikasi Google, duplikasi akun WhatsApp, serta daftar akun yang ditolak atau diblokir.</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSelectedReport('account_security')}
+                                        style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}
+                                    >
+                                        Buka & Cetak Laporan
+                                    </button>
+                                </div>
+
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', border: '2px solid var(--color-ink-black)', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', transition: 'all 0.2s', borderLeft: '6px solid var(--color-sunshine-pop)' }}>
+                                    <div>
+                                        <span style={{ display: 'inline-block', padding: '4px 14px', backgroundColor: 'var(--color-sunshine-pop)', color: 'var(--color-ink-black)', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '800', marginBottom: '14px', fontFamily: 'var(--font-inter)' }}>LAPORAN 8</span>
+                                        <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700', marginBottom: '8px' }}>Kategori Tugas Terpopuler</h3>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>Klasifikasi metrik kepopuleran tugas, rata-rata upah, total perputaran uang, dan rata-rata jarak per kategori.</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSelectedReport('popular_categories')}
+                                        style={{ width: '100%', padding: '12px 16px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}
                                     >
                                         Buka & Cetak Laporan
                                     </button>

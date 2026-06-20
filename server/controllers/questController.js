@@ -1,4 +1,26 @@
 const Quest = require('../models/Quest');
+const User = require('../models/User');
+
+function getHaversineDistance(coords1, coords2) {
+    const lon1 = coords1[0];
+    const lat1 = coords1[1];
+    const lon2 = coords2[0];
+    const lat2 = coords2[1];
+
+    const R = 6371e3; // metres
+    const phi1 = lat1 * Math.PI/180; // phi, lambda in radians
+    const phi2 = lat2 * Math.PI/180;
+    const deltaPhi = (lat2-lat1) * Math.PI/180;
+    const deltaLambda = (lon2-lon1) * Math.PI/180;
+
+    const a = Math.sin(deltaPhi/2) * Math.sin(deltaPhi/2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c; // in metres
+}
+
 
 // 1. Membuat Tugas Baru
 exports.createQuest = async (req, res) => {
@@ -18,6 +40,18 @@ exports.createQuest = async (req, res) => {
             return res.status(400).json({ 
                 success: false, 
                 message: "Anda tidak bisa membuat tugas baru karena masih ada tugas yang sedang berjalan (baik sebagai pembuat maupun pekerja). Selesaikan dulu!" 
+            });
+        }
+
+        // Validasi Batas Talangan
+        const user = await User.findById(pembuat_id);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User pembuat tidak ditemukan." });
+        }
+        if (kategori === 'jastip' && nominal_talangan > user.batas_talangan) {
+            return res.status(400).json({
+                success: false,
+                message: `Nominal talangan (Rp ${Number(nominal_talangan).toLocaleString('id-ID')}) melebihi batas talangan akun Anda (Rp ${user.batas_talangan.toLocaleString('id-ID')}).`
             });
         }
 
@@ -87,7 +121,7 @@ exports.takeQuest = async (req, res) => {
                 { pembuat_id: pekerja_id },
                 { pekerja_id: pekerja_id }
             ],
-            status: { $in: ['OPEN', 'TAKEN'] } 
+            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS'] } 
         });
 
         if (activeQuest) {
@@ -102,7 +136,7 @@ exports.takeQuest = async (req, res) => {
         const quest = await Quest.findOneAndUpdate(
             { _id: id, status: 'OPEN' },
             { 
-                $set: { status: 'TAKEN', pekerja_id: pekerja_id } 
+                $set: { status: 'TAKEN', pekerja_id: pekerja_id, taken_at: new Date() } 
             },
             { new: true }
         );
@@ -112,6 +146,30 @@ exports.takeQuest = async (req, res) => {
         }
 
         res.status(200).json({ success: true, message: "Tugas berhasil diambil", data: quest });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 3.5. Mulai Mengerjakan Tugas (Pekerja Sudah Sampai)
+exports.startQuest = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pekerja_id } = req.body;
+
+        const quest = await Quest.findOneAndUpdate(
+            { _id: id, pekerja_id: pekerja_id, status: 'TAKEN' },
+            { 
+                $set: { status: 'IN_PROGRESS', arrived_at: new Date() } 
+            },
+            { new: true }
+        );
+
+        if (!quest) {
+            return res.status(400).json({ success: false, message: "Tugas tidak valid atau bukan milik Anda." });
+        }
+
+        res.status(200).json({ success: true, message: "Pekerjaan dimulai", data: quest });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -130,7 +188,7 @@ exports.completeQuest = async (req, res) => {
             return res.status(404).json({ success: false, message: "Tugas tidak ditemukan." });
         }
 
-        if (quest.status !== 'TAKEN') {
+        if (quest.status !== 'IN_PROGRESS') {
             return res.status(400).json({ success: false, message: "Tugas ini tidak dalam status pengerjaan." });
         }
 
@@ -155,7 +213,7 @@ exports.completeQuest = async (req, res) => {
     }
 };
 
-// 5. Membatalkan / Menghapus Tugas Sendiri (Hanya jika masih OPEN)
+// 5. Membatalkan / Menghapus Tugas Sendiri
 exports.deleteQuest = async (req, res) => {
     try {
         const { id } = req.params;
@@ -171,8 +229,13 @@ exports.deleteQuest = async (req, res) => {
             return res.status(403).json({ success: false, message: "Anda tidak berhak menghapus tugas orang lain." });
         }
 
-        if (quest.status !== 'OPEN') {
-            return res.status(400).json({ success: false, message: "Tugas sudah diambil oleh pekerja dan tidak bisa dihapus sepihak. Hubungi pekerja terkait." });
+        if (quest.status === 'TAKEN') {
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+            if (!quest.taken_at || quest.taken_at > oneHourAgo) {
+                return res.status(400).json({ success: false, message: "Pekerja baru saja mengambil tugas ini (belum 1 jam). Harap tunggu atau hubungi pekerja terkait." });
+            }
+        } else if (quest.status !== 'OPEN') {
+            return res.status(400).json({ success: false, message: "Tugas sudah mulai dikerjakan (In Progress) dan tidak bisa dibatalkan sepihak." });
         }
 
         await Quest.findByIdAndDelete(id);
@@ -194,7 +257,7 @@ exports.getMyActiveQuest = async (req, res) => {
                 { pembuat_id: user_id },
                 { pekerja_id: user_id }
             ],
-            status: { $in: ['OPEN', 'TAKEN'] }
+            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS'] }
         });
 
         if (!activeQuest) {
@@ -267,13 +330,7 @@ exports.getMyStats = async (req, res) => {
             }
         });
 
-        // Jika tidak ada data sama sekali, beri sedikit angka default agar UI tidak kosong (hanya untuk keperluan demo)
-        if (completedQuests.length === 0) {
-            incomeMonth = 480000;
-            questsMonth = 47;
-            incomeToday = 0;
-            distanceTodayKm = 0;
-        }
+        // Tidak ada data dummy lagi, semua berdasarkan hasil perhitungan nyata
 
         res.status(200).json({
             success: true,
@@ -300,7 +357,7 @@ exports.getHistory = async (req, res) => {
                 { pembuat_id: user_id },
                 { pekerja_id: user_id }
             ],
-            status: { $in: ['COMPLETED', 'CANCELLED'] }
+            status: { $in: ['COMPLETED', 'CANCELED'] }
         }).sort({ created_at: -1 });
 
         res.status(200).json({ success: true, data: history });

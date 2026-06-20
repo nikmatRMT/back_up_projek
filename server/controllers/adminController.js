@@ -77,6 +77,28 @@ exports.toggleUserStatus = async (req, res) => {
     }
 };
 
+// Menghapus pengguna secara permanen
+exports.deleteUser = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const user = await User.findByIdAndDelete(userId);
+        
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+        }
+
+        // Opsional: Hapus tugas yang terkait dengan user ini jika diperlukan
+        await Quest.deleteMany({ pembuat_id: userId });
+
+        res.json({
+            success: true,
+            message: 'Akun pengguna berhasil dihapus secara permanen'
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 // Mendapatkan seluruh daftar tugas
 exports.getQuests = async (req, res) => {
     try {

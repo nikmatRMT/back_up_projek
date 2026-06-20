@@ -47,8 +47,16 @@ const questSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['OPEN', 'TAKEN', 'COMPLETED', 'CANCELED'],
+        enum: ['OPEN', 'TAKEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELED'],
         default: 'OPEN'
+    },
+    taken_at: {
+        type: Date,
+        default: null
+    },
+    arrived_at: {
+        type: Date,
+        default: null
     },
     pin_rahasia: {
         type: String,

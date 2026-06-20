@@ -11,6 +11,9 @@ router.get('/users', adminController.getUsers);
 // Route untuk block/suspend pengguna
 router.put('/users/:userId/toggle-status', adminController.toggleUserStatus);
 
+// Hapus pengguna permanen
+router.delete('/users/:userId', adminController.deleteUser);
+
 // Route untuk memantau semua tugas
 router.get('/quests', adminController.getQuests);
 

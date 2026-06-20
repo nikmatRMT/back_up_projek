@@ -1,40 +1,90 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+/* ============================================================
+   JASA WARGA — MindMarket Design System
+   Warm storybook on cream paper
+   ============================================================ */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Tokens ────────────────────────────────────────────────── */
 :root {
-  /* Palet Warna Aksesibilitas Tinggi & Resmi */
-  --bg-main: #F8FAFC; /* Putih Tulang / Abu Lembut */
-  --surface: #FFFFFF; /* Putih Bersih untuk Kartu */
-  
-  --primary: #1E3A8A; /* Biru Safir */
-  --primary-hover: #172554;
-  --secondary: #10B981; /* Hijau Sage / Emerald */
-  --accent: #3B82F6; /* Biru Muda */
+  /* Colors */
+  --color-fresh-grass: #8ed462;
+  --color-cream-paper: #f5f1e4;
+  --color-ink-black: #2c2e2a;
+  --color-pure-white: #ffffff;
+  --color-sandstone: #e0dbce;
+  --color-stone-gray: #80827f;
+  --color-hairline-mist: #d5d5d4;
+  --color-pure-ink: #000000;
+  --color-sky-pop: #2ba0ff;
+  --color-coral-pop: #ff705d;
+  --color-sunshine-pop: #f5e211;
 
-  --text-main: #0F172A; /* Kontras maksimal untuk bacaan */
-  --text-muted: #64748B; /* Teks tambahan / deskripsi */
-  
-  --border-light: #E2E8F0;
-  --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.025);
-  --shadow-card: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.025);
+  /* Semantic aliases */
+  --bg-main: var(--color-cream-paper);
+  --surface: var(--color-pure-white);
+  --text-main: var(--color-ink-black);
+  --text-muted: var(--color-stone-gray);
+  --border-ink: var(--color-ink-black);
+  --border-light: var(--color-hairline-mist);
+  --accent-green: var(--color-fresh-grass);
+  --accent-coral: var(--color-coral-pop);
+  --accent-blue: var(--color-sky-pop);
+  --accent-yellow: var(--color-sunshine-pop);
+
+  /* Typography */
+  --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --text-body-sm: 15px;
+  --text-body-lg: 18px;
+  --text-subheading: 20px;
+  --text-heading-sm: 30px;
+  --text-heading: 53px;
+  --text-heading-lg: 81px;
+  --text-display: 140px;
+
+  /* Spacing */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+
+  /* Border Radius */
+  --radius-small: 10px;
+  --radius-medium: 24px;
+  --radius-cards: 50px;
+  --radius-buttons: 50px;
+  --radius-nav: 50px;
+  --radius-illustration: 63.75px;
 }
 
-* {
+/* ── Global Reset ──────────────────────────────────────────── */
+*, *::before, *::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background-color: #E2E8F0; /* Latar luar layar HP */
+  font-family: var(--font-inter);
   color: var(--text-main);
+  background-color: var(--color-sandstone);
   min-height: 100vh;
   display: flex;
   justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Container Smartphone (Mobile First) */
+/* ── Mobile Container ──────────────────────────────────────── */
 #root {
   width: 100%;
   max-width: 430px;
@@ -43,95 +93,333 @@ body {
   display: flex;
   flex-direction: column;
   background-color: var(--bg-main);
-  box-shadow: 0 0 20px rgba(0,0,0,0.1);
+  border-left: 2px solid var(--border-ink);
+  border-right: 2px solid var(--border-ink);
   overflow-x: hidden;
 }
 
-/* Card Style */
-.clean-card {
-  background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: var(--shadow-card);
-}
-
-/* Aksesibilitas Tinggi: Tombol Besar dan Kontras */
-.btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  width: 100%;
-  padding: 16px 24px;
-  border-radius: 12px;
-  border: none;
-  font-weight: 600;
-  font-size: 1.05rem;
-  cursor: pointer;
-  transition: background-color 0.2s ease, transform 0.1s ease;
-}
-
-.btn:active {
-  transform: scale(0.98);
-}
-
-.btn-primary {
-  background-color: var(--primary);
-  color: #FFFFFF;
-}
-
-.btn-primary:hover {
-  background-color: var(--primary-hover);
-}
-
-.btn-outline {
-  background-color: var(--surface);
-  color: var(--text-main);
-  border: 2px solid var(--border-light);
-}
-
-.btn-outline:hover {
-  background-color: #F1F5F9;
-  border-color: #CBD5E1;
-}
-
-/* Typography Keterbacaan Tinggi */
+/* ── Typography ────────────────────────────────────────────── */
 h1 {
-  font-size: 2.2rem;
+  font-size: clamp(1.75rem, 5vw, var(--text-heading-sm));
   font-weight: 700;
-  color: var(--primary);
-  line-height: 1.2;
-  margin-bottom: 8px;
+  color: var(--text-main);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
 }
 
 h2 {
-  font-size: 1.5rem;
+  font-size: clamp(1.25rem, 4vw, 1.5rem);
   font-weight: 600;
   color: var(--text-main);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.3;
 }
 
 p {
   color: var(--text-muted);
-  font-size: 1rem;
-  line-height: 1.6;
+  font-size: var(--text-body-sm);
+  line-height: 1.55;
 }
 
-/* Animasi Masuk Halus (Aman untuk mata) */
+/* ── Card ──────────────────────────────────────────────────── */
+.clean-card {
+  background: var(--surface);
+  border: 2px solid var(--border-ink);
+  border-radius: var(--radius-cards);
+  padding: 21px;
+  box-shadow: none;
+  transition: transform 0.15s ease;
+}
+
+.clean-card:hover {
+  transform: translateY(-1px);
+}
+
+/* ── Buttons ───────────────────────────────────────────────── */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 24px;
+  border-radius: var(--radius-buttons);
+  border: 2px solid var(--border-ink);
+  font-family: var(--font-inter);
+  font-weight: 600;
+  font-size: var(--text-body-sm);
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 0.2s ease, transform 0.1s ease, opacity 0.2s ease;
+  text-decoration: none;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primary = Coral Pop (service-level CTA) */
+.btn-primary {
+  background-color: var(--accent-coral);
+  color: var(--color-pure-white);
+  border-color: var(--border-ink);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #e55c4a;
+}
+
+/* Green = Fresh Grass (structural accent) */
+.btn-green {
+  background-color: var(--accent-green);
+  color: var(--text-main);
+  border-color: var(--border-ink);
+}
+
+.btn-green:hover:not(:disabled) {
+  background-color: #7bc54d;
+}
+
+/* Outline / Ghost */
+.btn-outline {
+  background-color: var(--surface);
+  color: var(--text-main);
+  border: 2px solid var(--border-ink);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background-color: var(--bg-main);
+}
+
+/* ── Form Inputs ───────────────────────────────────────────── */
+.form-input {
+  width: 100%;
+  padding: 13px 16px;
+  border-radius: var(--radius-small);
+  border: 2px solid var(--border-ink);
+  font-family: var(--font-inter);
+  font-size: var(--text-body-sm);
+  color: var(--text-main);
+  background-color: var(--surface);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.form-input:focus {
+  border-color: var(--accent-green);
+}
+
+.form-input::placeholder {
+  color: var(--color-hairline-mist);
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+
+.form-select {
+  width: 100%;
+  padding: 13px 16px;
+  border-radius: var(--radius-small);
+  border: 2px solid var(--border-ink);
+  font-family: var(--font-inter);
+  font-size: var(--text-body-sm);
+  color: var(--text-main);
+  background-color: var(--surface);
+  cursor: pointer;
+  outline: none;
+  appearance: auto;
+}
+
+textarea.form-input {
+  resize: none;
+  line-height: 1.5;
+}
+
+/* ── Badges / Pills ────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 14px;
+  border-radius: var(--radius-buttons);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.badge-dark {
+  background-color: var(--text-main);
+  color: var(--color-pure-white);
+}
+
+.badge-green {
+  background-color: var(--accent-green);
+  color: var(--text-main);
+  border: 2px solid var(--border-ink);
+}
+
+.badge-coral {
+  background-color: var(--accent-coral);
+  color: var(--color-pure-white);
+  border: 2px solid var(--border-ink);
+}
+
+.badge-outline {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  border: 2px solid var(--border-ink);
+}
+
+.badge-sunshine {
+  background-color: var(--accent-yellow);
+  color: var(--text-main);
+  border: 2px solid var(--border-ink);
+}
+
+/* ── Section Header ────────────────────────────────────────── */
+.section-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Dividers ──────────────────────────────────────────────── */
+.divider-ink {
+  border: none;
+  border-top: 2px solid var(--border-ink);
+  margin: 16px 0;
+}
+
+.divider-dashed {
+  border: none;
+  border-top: 2px dashed var(--border-ink);
+  margin: 16px 0;
+}
+
+.divider-mist {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 12px 0;
+}
+
+/* ── Alert / Info Box ──────────────────────────────────────── */
+.info-box {
+  background-color: var(--bg-main);
+  border: 2px solid var(--border-ink);
+  border-radius: var(--radius-medium);
+  padding: 14px 16px;
+}
+
+.error-box {
+  background-color: #fef2f0;
+  border: 2px solid var(--accent-coral);
+  border-radius: var(--radius-small);
+  padding: 12px 16px;
+  color: var(--accent-coral);
+  font-size: 14px;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* ── Animations ────────────────────────────────────────────── */
 .fade-up {
   opacity: 0;
-  transform: translateY(15px);
-  animation: fadeUpAnim 0.5s ease-out forwards;
+  transform: translateY(12px);
+  animation: fadeUpAnim 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes fadeUpAnim {
-  to { opacity: 1; transform: translateY(0); }
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: none; }
 }
 
-.delay-1 { animation-delay: 0.1s; }
-.delay-2 { animation-delay: 0.2s; }
+/* Comic Speech Bubble */
+.speech-bubble {
+  position: relative;
+  background: var(--surface);
+  border: 2px solid currentColor;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 12px;
+  animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  box-shadow: 2px 2px 0 currentColor;
+}
 
-/* Sembunyikan panel instruksi teks Leaflet Routing Machine */
+.speech-bubble::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 20px;
+  border-width: 0 8px 8px 8px;
+  border-style: solid;
+  border-color: transparent transparent var(--surface) transparent;
+  z-index: 2;
+}
+
+.speech-bubble::before {
+  content: '';
+  position: absolute;
+  top: -11px;
+  left: 18px;
+  border-width: 0 10px 10px 10px;
+  border-style: solid;
+  border-color: transparent transparent currentColor transparent;
+  z-index: 1;
+}
+
+@keyframes popIn {
+  0% { opacity: 0; transform: scale(0.9) translateY(-5px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.delay-1 { animation-delay: 0.08s; }
+.delay-2 { animation-delay: 0.16s; }
+.delay-3 { animation-delay: 0.24s; }
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+/* ── Leaflet Overrides ─────────────────────────────────────── */
 .leaflet-routing-container {
   display: none !important;
+}
+
+/* ── Scrollbar (Webkit) ────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-main);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-hairline-mist);
+  border-radius: 50px;
 }
