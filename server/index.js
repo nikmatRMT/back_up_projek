@@ -88,13 +88,14 @@ const Quest = require('./models/Quest');
 app.get('/api/sweeper', async (req, res) => {
     try {
         const now = Date.now();
-        const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000); // Diperpanjang ke 4 Jam
+        // SEMENTARA UBAH BATAS WAKTU OPEN MENJADI 1 MENIT UNTUK PENGUJIAN USER
+        const oneMinuteAgo = new Date(now - 1 * 60 * 1000); 
         const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000);
         const twelveHoursAgo = new Date(now - 12 * 60 * 60 * 1000);
 
-        // 1. Batalkan tugas OPEN yang sudah > 4 jam
+        // 1. Batalkan tugas OPEN yang sudah > 1 menit
         const canceledOpen = await Quest.updateMany(
-            { status: 'OPEN', created_at: { $lt: fourHoursAgo } },
+            { status: 'OPEN', created_at: { $lt: oneMinuteAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'TIMEOUT_OPEN' } }
         );
 
@@ -110,12 +111,12 @@ app.get('/api/sweeper', async (req, res) => {
             { $set: { status: 'CANCELED', cancel_reason: 'WORKER_INCOMPLETE' } }
         );
 
-        const logMsg = `[Sweeper] Canceled ${canceledOpen.modifiedCount} OPEN, ${canceledTaken.modifiedCount} TAKEN, ${canceledInProgress.modifiedCount} IN_PROGRESS tasks.`;
+        const logMsg = `[Sweeper TEST 1 MIN] Canceled ${canceledOpen.modifiedCount} OPEN, ${canceledTaken.modifiedCount} TAKEN, ${canceledInProgress.modifiedCount} IN_PROGRESS tasks.`;
         console.log(logMsg);
 
         res.status(200).json({
             success: true,
-            message: 'Sweeper job executed successfully',
+            message: 'Sweeper test executed successfully',
             data: {
                 canceledOpen: canceledOpen.modifiedCount,
                 canceledTaken: canceledTaken.modifiedCount,
@@ -128,18 +129,18 @@ app.get('/api/sweeper', async (req, res) => {
     }
 });
 
-// Auto-Cancel Sweeper Job (Hanya berjalan lokal di server terus-menerus, di Vercel menggunakan Vercel Cron)
+// Auto-Cancel Sweeper Job (Jalan lokal setiap 10 detik untuk Pengujian 1 Menit)
 if (!process.env.VERCEL) {
     setInterval(async () => {
         try {
             const now = Date.now();
-            const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000); // Diperpanjang ke 4 Jam
+            const oneMinuteAgo = new Date(now - 1 * 60 * 1000); // 1 Menit
             const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000);
             const twelveHoursAgo = new Date(now - 12 * 60 * 60 * 1000);
 
-            // 1. Batalkan tugas OPEN yang sudah > 4 jam
+            // 1. Batalkan tugas OPEN yang sudah > 1 menit
             const canceledOpen = await Quest.updateMany(
-                { status: 'OPEN', created_at: { $lt: fourHoursAgo } },
+                { status: 'OPEN', created_at: { $lt: oneMinuteAgo } },
                 { $set: { status: 'CANCELED', cancel_reason: 'TIMEOUT_OPEN' } }
             );
 
@@ -156,12 +157,12 @@ if (!process.env.VERCEL) {
             );
 
             if (canceledOpen.modifiedCount > 0 || canceledTaken.modifiedCount > 0 || canceledInProgress.modifiedCount > 0) {
-                console.log(`[Sweeper] Canceled ${canceledOpen.modifiedCount} OPEN, ${canceledTaken.modifiedCount} TAKEN, ${canceledInProgress.modifiedCount} IN_PROGRESS tasks.`);
+                console.log(`[Sweeper TEST 1 MIN] Canceled ${canceledOpen.modifiedCount} OPEN, ${canceledTaken.modifiedCount} TAKEN, ${canceledInProgress.modifiedCount} IN_PROGRESS tasks.`);
             }
         } catch (err) {
             console.error('[Sweeper] Error running auto-cancel job:', err);
         }
-    }, 5 * 60 * 1000); // 5 menit
+    }, 10 * 1000); // Check setiap 10 detik
 }
 
 // Start Server jika tidak berjalan di Vercel

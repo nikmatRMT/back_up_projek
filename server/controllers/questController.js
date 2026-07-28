@@ -8,15 +8,15 @@ function getHaversineDistance(coords1, coords2) {
     const lat2 = coords2[1];
 
     const R = 6371e3; // metres
-    const phi1 = lat1 * Math.PI/180; // phi, lambda in radians
-    const phi2 = lat2 * Math.PI/180;
-    const deltaPhi = (lat2-lat1) * Math.PI/180;
-    const deltaLambda = (lon2-lon1) * Math.PI/180;
+    const phi1 = lat1 * Math.PI / 180;
+    const phi2 = lat2 * Math.PI / 180;
+    const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+    const deltaLambda = (lon2 - lon1) * Math.PI / 180;
 
-    const a = Math.sin(deltaPhi/2) * Math.sin(deltaPhi/2) +
-            Math.cos(phi1) * Math.cos(phi2) *
-            Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+        Math.cos(phi1) * Math.cos(phi2) *
+        Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c; // in metres
 }
@@ -28,18 +28,18 @@ exports.createQuest = async (req, res) => {
         const { pembuat_id, kategori, deskripsi, upah_jasa, nominal_talangan, longitude, latitude } = req.body;
 
         // Validasi: Cek apakah user masih memiliki tugas yang aktif (OPEN atau TAKEN) sebagai Klien maupun Pekerja
-        const activeQuest = await Quest.findOne({ 
+        const activeQuest = await Quest.findOne({
             $or: [
                 { pembuat_id: pembuat_id },
                 { pekerja_id: pembuat_id }
             ],
-            status: { $in: ['OPEN', 'TAKEN'] } 
+            status: { $in: ['OPEN', 'TAKEN'] }
         });
 
         if (activeQuest) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Anda tidak bisa membuat tugas baru karena masih ada tugas yang sedang berjalan (baik sebagai pembuat maupun pekerja). Selesaikan dulu!" 
+            return res.status(400).json({
+                success: false,
+                message: "Anda tidak bisa membuat tugas baru karena masih ada tugas yang sedang berjalan (baik sebagai pembuat maupun pekerja). Selesaikan dulu!"
             });
         }
 
@@ -69,8 +69,7 @@ exports.createQuest = async (req, res) => {
                 coordinates: [parseFloat(longitude), parseFloat(latitude)]
             },
             pin_rahasia,
-            // Misal kadaluarsa 2 jam dari sekarang
-            expired_at: new Date(Date.now() + 2 * 60 * 60 * 1000) 
+            expired_at: new Date(Date.now() + 2 * 60 * 60 * 1000)
         });
 
         res.status(201).json({ success: true, data: newQuest });
@@ -79,14 +78,23 @@ exports.createQuest = async (req, res) => {
     }
 };
 
-// 2. Mencari Tugas Terdekat (Algoritma Haversine dengan $geoNear)
+// 2. Mencari Tugas Terdekat (Algoritma Haversine dengan $geoNear + AUTO SWEEPER)
 exports.getNearbyQuests = async (req, res) => {
     try {
-        const { longitude, latitude, radius = 1000 } = req.query; // Default radius 1 KM (1000 meter)
+        const { longitude, latitude, radius = 1000 } = req.query;
 
         if (!longitude || !latitude) {
             return res.status(400).json({ success: false, message: "Longitude dan Latitude wajib diisi" });
         }
+
+        // AUTO-SWEEP ON-DEMAND (Khusus Vercel Serverless & Server): 
+        // Sebelum mengambil daftar quest, otomatis batalkan quest OPEN yang sudah kedaluwarsa (> 1 menit untuk pengujian)
+        const now = Date.now();
+        const oneMinuteAgo = new Date(now - 1 * 60 * 1000); 
+        await Quest.updateMany(
+            { status: 'OPEN', created_at: { $lt: oneMinuteAgo } },
+            { $set: { status: 'CANCELED', cancel_reason: 'TIMEOUT_OPEN' } }
+        );
 
         const quests = await Quest.aggregate([
             {
@@ -96,9 +104,9 @@ exports.getNearbyQuests = async (req, res) => {
                         coordinates: [parseFloat(longitude), parseFloat(latitude)]
                     },
                     distanceField: "jarak_meter",
-                    maxDistance: parseInt(radius), // Jarak maksimal dalam meter
-                    query: { status: "OPEN" }, // Hanya cari tugas yang belum diambil
-                    spherical: true // Menggunakan rumus Haversine (kelengkungan bumi)
+                    maxDistance: parseInt(radius),
+                    query: { status: "OPEN" },
+                    spherical: true
                 }
             }
         ]);
@@ -109,40 +117,37 @@ exports.getNearbyQuests = async (req, res) => {
     }
 };
 
-// 3. Menerima Tugas (Pencegahan Race Condition dengan Atomic Update)
+// 3. Menerima Tugas
 exports.takeQuest = async (req, res) => {
     try {
         const { id } = req.params;
         const { pekerja_id, jarak_meter, transport_mode } = req.body;
 
-        // Validasi: Cek apakah pekerja sudah punya tugas aktif (baik sebagai Klien atau Pekerja)
-        const activeQuest = await Quest.findOne({ 
+        const activeQuest = await Quest.findOne({
             $or: [
                 { pembuat_id: pekerja_id },
                 { pekerja_id: pekerja_id }
             ],
-            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS'] } 
+            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS'] }
         });
 
         if (activeQuest) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Anda tidak bisa mengambil tugas ini karena masih memiliki tugas yang aktif. Selesaikan atau batalkan terlebih dahulu!" 
+            return res.status(400).json({
+                success: false,
+                message: "Anda tidak bisa mengambil tugas ini karena masih memiliki tugas yang aktif. Selesaikan atau batalkan terlebih dahulu!"
             });
         }
 
-        // Atomic Update: Cari tugas yang statusnya OPEN, lalu ubah jadi TAKEN
-        // Jika tugas sudah diambil orang lain, statusnya bukan OPEN lagi, sehingga query ini akan return null.
         const quest = await Quest.findOneAndUpdate(
             { _id: id, status: 'OPEN' },
-            { 
-                $set: { 
-                    status: 'TAKEN', 
-                    pekerja_id: pekerja_id, 
+            {
+                $set: {
+                    status: 'TAKEN',
+                    pekerja_id: pekerja_id,
                     taken_at: new Date(),
                     jarak_meter: jarak_meter || 0,
                     transport_mode: transport_mode || 'walk'
-                } 
+                }
             },
             { new: true }
         );
@@ -157,7 +162,7 @@ exports.takeQuest = async (req, res) => {
     }
 };
 
-// 3.5. Mulai Mengerjakan Tugas (Pekerja Sudah Sampai)
+// 3.5. Mulai Mengerjakan Tugas
 exports.startQuest = async (req, res) => {
     try {
         const { id } = req.params;
@@ -165,8 +170,8 @@ exports.startQuest = async (req, res) => {
 
         const quest = await Quest.findOneAndUpdate(
             { _id: id, pekerja_id: pekerja_id, status: 'TAKEN' },
-            { 
-                $set: { status: 'IN_PROGRESS', arrived_at: new Date() } 
+            {
+                $set: { status: 'IN_PROGRESS', arrived_at: new Date() }
             },
             { new: true }
         );
@@ -181,12 +186,11 @@ exports.startQuest = async (req, res) => {
     }
 };
 
-// 4. Menyelesaikan Tugas (Validasi PIN)
+// 4. Menyelesaikan Tugas (Validasi PIN & Geofencing)
 exports.completeQuest = async (req, res) => {
-    const User = require('../models/User'); // Include User model to update balance
     try {
         const { id } = req.params;
-        const { pin } = req.body;
+        const { pin, latitude, longitude } = req.body;
 
         const quest = await Quest.findById(id);
 
@@ -198,24 +202,21 @@ exports.completeQuest = async (req, res) => {
             return res.status(400).json({ success: false, message: "Tugas ini tidak dalam status pengerjaan." });
         }
 
-        // Validasi PIN
         if (quest.pin_rahasia !== pin) {
             return res.status(400).json({ success: false, message: "PIN Salah! Silakan coba lagi." });
         }
 
-        // Validasi Lokasi (Geofencing) menggunakan Formula Haversine
-        const { latitude, longitude } = req.body;
         if (latitude && longitude && quest.lokasi && quest.lokasi.coordinates) {
             const workerCoords = [Number(longitude), Number(latitude)];
-            const questCoords = quest.lokasi.coordinates; // [lng, lat]
-            
+            const questCoords = quest.lokasi.coordinates;
+
             const distanceInMeters = getHaversineDistance(workerCoords, questCoords);
-            const MAX_GEOFENCE_RADIUS_METERS = 100; // toleransi 100 meter
+            const MAX_GEOFENCE_RADIUS_METERS = 100;
 
             if (distanceInMeters > MAX_GEOFENCE_RADIUS_METERS) {
                 return res.status(400).json({
                     success: false,
-                    message: `Validasi Geofencing Gagal! Jarak Anda dengan titik lokasi tugas adalah ${Math.round(distanceInMeters)} meter. Anda wajib berada dalam radius ${MAX_GEOFENCE_RADIUS_METERS} meter dari titik lokasi tugas untuk memasukkan PIN penyelesaian.`
+                    message: `Validasi Geofencing Gagal! Jarak Anda adalah ${Math.round(distanceInMeters)} meter. Wajib <${MAX_GEOFENCE_RADIUS_METERS} meter.`
                 });
             }
         }
@@ -224,7 +225,6 @@ exports.completeQuest = async (req, res) => {
         quest.completed_at = new Date();
         await quest.save();
 
-        // Tambahkan uang ke saldo Pekerja
         const totalPendapatan = quest.upah_jasa + (quest.nominal_talangan || 0);
         await User.findByIdAndUpdate(quest.pekerja_id, {
             $inc: { saldo: totalPendapatan }
@@ -240,7 +240,7 @@ exports.completeQuest = async (req, res) => {
 exports.deleteQuest = async (req, res) => {
     try {
         const { id } = req.params;
-        const { pembuat_id } = req.body; // Butuh ID pembuat untuk memastikan itu miliknya
+        const { pembuat_id } = req.body;
 
         const quest = await Quest.findById(id);
 
@@ -255,21 +255,21 @@ exports.deleteQuest = async (req, res) => {
         if (quest.status === 'TAKEN') {
             const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
             if (!quest.taken_at || quest.taken_at > oneHourAgo) {
-                return res.status(400).json({ success: false, message: "Pekerja baru saja mengambil tugas ini (belum 1 jam). Harap tunggu atau hubungi pekerja terkait." });
+                return res.status(400).json({ success: false, message: "Pekerja baru saja mengambil tugas ini (belum 1 jam)." });
             }
         } else if (quest.status !== 'OPEN') {
-            return res.status(400).json({ success: false, message: "Tugas sudah mulai dikerjakan (In Progress) dan tidak bisa dibatalkan sepihak." });
+            return res.status(400).json({ success: false, message: "Tugas sudah mulai dikerjakan (In Progress)." });
         }
 
         await Quest.findByIdAndDelete(id);
 
-        res.status(200).json({ success: true, message: "Tugas berhasil dibatalkan dan dihapus dari sistem." });
+        res.status(200).json({ success: true, message: "Tugas berhasil dibatalkan dan dihapus." });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// 6. Mendapatkan Tugas Aktif Saat Ini
+// 6. Mendapatkan Tugas Aktif
 exports.getMyActiveQuest = async (req, res) => {
     try {
         const { user_id } = req.query;
@@ -282,8 +282,8 @@ exports.getMyActiveQuest = async (req, res) => {
             ],
             status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS'] }
         })
-        .populate('pembuat_id', 'nama_lengkap no_whatsapp email')
-        .populate('pekerja_id', 'nama_lengkap no_whatsapp email');
+            .populate('pembuat_id', 'nama_lengkap no_whatsapp email')
+            .populate('pekerja_id', 'nama_lengkap no_whatsapp email');
 
         if (!activeQuest) {
             return res.status(404).json({ success: false, message: "Tidak ada tugas aktif." });
@@ -295,34 +295,32 @@ exports.getMyActiveQuest = async (req, res) => {
     }
 };
 
-// 7. Update Lokasi Live Pekerja (Untuk Tracking Klien)
+// 7. Update Lokasi Live Pekerja
 exports.updatePekerjaLocation = async (req, res) => {
     try {
         const { id } = req.params;
         const { longitude, latitude } = req.body;
-        
+
         await Quest.findByIdAndUpdate(id, {
             pekerja_lokasi: { longitude, latitude }
         });
-        
+
         res.status(200).json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// 8. Mendapatkan Statistik Gamifikasi (Penghasilan & Aktivitas)
+// 8. Mendapatkan Statistik Gamifikasi
 exports.getMyStats = async (req, res) => {
     try {
         const { user_id } = req.query;
         if (!user_id) return res.status(400).json({ success: false, message: "User ID diperlukan" });
 
         const now = new Date();
-        // Dapatkan format tanggal YYYY-MM-DD dan YYYY-MM di timezone Asia/Jakarta (WIB)
         const todayStr = now.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
         const currentMonthStr = todayStr.slice(0, 7);
 
-        // Cari semua tugas selesai milik pekerja ini
         const completedQuests = await Quest.find({
             pekerja_id: user_id,
             status: 'COMPLETED'
@@ -336,13 +334,12 @@ exports.getMyStats = async (req, res) => {
         let kaloriToday = 0;
 
         completedQuests.forEach(q => {
-            // Gunakan waktu selesai sebenarnya, atau fallback ke waktu saat ini jika data lama
-            const completedAt = q.completed_at || new Date(); 
+            const completedAt = q.completed_at || new Date();
             const totalUangTunai = q.upah_jasa + (q.nominal_talangan || 0);
-            
+
             const completedAtStr = completedAt.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
             const completedAtMonthStr = completedAtStr.slice(0, 7);
-            
+
             if (completedAtMonthStr === currentMonthStr) {
                 incomeMonth += totalUangTunai;
                 questsMonth += 1;
@@ -351,20 +348,16 @@ exports.getMyStats = async (req, res) => {
             if (completedAtStr === todayStr) {
                 incomeToday += totalUangTunai;
                 const distanceKm = (q.jarak_meter || 0) / 1000;
-                distanceTodayKm += distanceKm; 
-                
+                distanceTodayKm += distanceKm;
+
                 if (q.transport_mode === 'motorcycle') {
-                    // Naik motor: langkah = 0, kalori = 15 per KM
                     kaloriToday += Math.round(distanceKm * 15);
                 } else {
-                    // Jalan kaki: langkah = 1300 per KM, kalori = 55 per KM
                     langkahToday += Math.round(distanceKm * 1300);
                     kaloriToday += Math.round(distanceKm * 55);
                 }
             }
         });
-
-        // Tidak ada data dummy lagi, semua berdasarkan hasil perhitungan nyata
 
         res.status(200).json({
             success: true,
@@ -395,9 +388,9 @@ exports.getHistory = async (req, res) => {
             ],
             status: { $in: ['COMPLETED', 'CANCELED'] }
         })
-        .populate('pembuat_id', 'nama_lengkap no_whatsapp email')
-        .populate('pekerja_id', 'nama_lengkap no_whatsapp email')
-        .sort({ created_at: -1 });
+            .populate('pembuat_id', 'nama_lengkap no_whatsapp email')
+            .populate('pekerja_id', 'nama_lengkap no_whatsapp email')
+            .sort({ created_at: -1 });
 
         res.status(200).json({ success: true, data: history });
     } catch (error) {
@@ -405,9 +398,8 @@ exports.getHistory = async (req, res) => {
     }
 };
 
-// 10. Memberikan Rating Tugas (Validasi Klien)
+// 10. Memberikan Rating Tugas
 exports.rateQuest = async (req, res) => {
-    const User = require('../models/User');
     try {
         const { id } = req.params;
         const { rating, ulasan } = req.body;
@@ -425,10 +417,9 @@ exports.rateQuest = async (req, res) => {
         quest.ulasan_pekerja = ulasan || '';
         await quest.save();
 
-        // Hitung ulang rata-rata rating pekerja
         const workerId = quest.pekerja_id;
         const completedQuests = await Quest.find({ pekerja_id: workerId, status: 'COMPLETED', rating_pekerja: { $ne: null } });
-        
+
         const totalRating = completedQuests.reduce((sum, q) => sum + q.rating_pekerja, 0);
         const totalUlasan = completedQuests.length;
         const avgRating = totalUlasan > 0 ? (totalRating / totalUlasan) : 0;
@@ -445,7 +436,6 @@ exports.rateQuest = async (req, res) => {
 
 // 11. Mendapatkan Daftar Pekerja Terbaik (Leaderboard)
 exports.getTopWorkers = async (req, res) => {
-    const User = require('../models/User');
     try {
         const workers = await User.find({ role: 'user', total_ulasan: { $gt: 0 } })
             .sort({ rating_rata_rata: -1 })
@@ -456,4 +446,3 @@ exports.getTopWorkers = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
-
