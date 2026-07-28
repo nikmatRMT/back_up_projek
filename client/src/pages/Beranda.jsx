@@ -14,10 +14,29 @@ import { getCurrentLocation } from '../utils/geolocationHelper';
 import { requestNotificationPermission, showNotification, startNativePollingService, updateNativeServiceLocation, checkBatteryOptimizations, requestIgnoreBatteryOptimizations } from '../utils/notificationHelper';
 
 const customIcon = new L.DivIcon({
-    html: `<div style="color: var(--accent-coral, #f87171);"><svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></div>`,
+    html: `<div style="
+        background: #ff705d;
+        color: white;
+        padding: 6px;
+        border-radius: 50%;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        border: 2.5px solid #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+    ">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="8" y1="13" x2="16" y2="13"></line>
+            <line x1="8" y1="17" x2="14" y2="17"></line>
+        </svg>
+    </div>`,
     className: 'custom-marker',
-    iconSize: [32, 32],
-    iconAnchor: [16, 32]
+    iconSize: [38, 38],
+    iconAnchor: [19, 19]
 });
 
 function MapResizeHandler({ center }) {

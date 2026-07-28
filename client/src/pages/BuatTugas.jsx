@@ -1,17 +1,36 @@
 import toast from 'react-hot-toast';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import axios from 'axios';
 import { getCurrentLocation } from '../utils/geolocationHelper';
 
-// Ikon kustom agar tidak bergantung pada aset lokal Leaflet
-const customIcon = new L.DivIcon({
-    html: `<div style="color: var(--color-coral-pop, #ff705d);"><svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></div>`,
+// Ikon kustom Kertas Quest (Scroll / Document) dengan tema Neobrutalism
+const questPaperIcon = new L.DivIcon({
+    html: `<div style="
+        background: #ff705d;
+        color: white;
+        padding: 6px;
+        border-radius: 50%;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        border: 2.5px solid #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+    ">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="8" y1="13" x2="16" y2="13"></line>
+            <line x1="8" y1="17" x2="14" y2="17"></line>
+        </svg>
+    </div>`,
     className: 'custom-marker',
-    iconSize: [32, 32],
-    iconAnchor: [16, 32]
+    iconSize: [38, 38],
+    iconAnchor: [19, 19]
 });
 
 function MapUpdater({ center }) {
@@ -109,145 +128,192 @@ export default function BuatTugas() {
         return R * c; // in metres
     };
 
-    const handleDapatkanLokasi = () => {
+    const handleDeteksiLokasi = () => {
         setIsMemuatLokasi(true);
         getCurrentLocation(
-            (position) => {
-                const { latitude, longitude } = position.coords;
-                setLokasi([latitude, longitude]);
-                setLokasiAsli([latitude, longitude]);
+            (pos) => {
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                setLokasi([lat, lng]);
+                setLokasiAsli([lat, lng]);
                 setIsLokasiTerkunci(true);
                 setIsMemuatLokasi(false);
+                toast.success("Lokasi GPS presisi Anda berhasil dideteksi!");
             },
-            (error) => {
-                const errMsg = error.message ? error.message.toLowerCase() : '';
-                if (errMsg.includes('location disabled') || errMsg.includes('disabled') || error.code === 2) {
-                    toast.error("Sensor GPS HP Anda belum aktif! Harap tarik menu atas HP Anda dan nyalakan sakelar 'Lokasi' (GPS).");
-                } else {
-                    toast.error('Gagal mendapatkan lokasi. Pastikan Anda telah mengizinkan akses lokasi (Location/GPS) di HP/browser Anda. Error: ' + error.message);
-                }
+            (err) => {
                 setIsMemuatLokasi(false);
+                const errMsg = err.message ? err.message.toLowerCase() : '';
+                if (errMsg.includes('location disabled') || errMsg.includes('disabled') || err.code === 2) {
+                    toast.error("Sensor GPS HP Anda belum aktif! Harap aktifkan sakelar 'Lokasi' (GPS) pada HP Anda.");
+                } else {
+                    toast.error("Gagal mendeteksi lokasi GPS. Pastikan izin lokasi aktif.");
+                }
             },
-            { enableHighAccuracy: true }
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
     };
 
-    const handleTerbitkan = async (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
+
         if (!isLokasiTerkunci) {
-            toast.error('Tolong kunci lokasi Anda terlebih dahulu menggunakan tombol GPS!');
+            toast.error("Harap tekan tombol 'Deteksi Otomatis' untuk menentukan lokasi tugas!");
             return;
         }
 
-        if (Number(upahJasa) < 2000) {
-            toast.error('Upah Lelah Pekerja tidak masuk akal! Harap berikan nominal minimal Rp 2.000.');
+        const myUserId = localStorage.getItem('myUserId');
+        if (!myUserId) {
+            toast.error("Sesi Anda berakhir. Harap login kembali.");
+            navigate('/');
             return;
         }
 
-        const nominalTalanganNum = kategori === 'jastip' ? Number(talangan || 0) : 0;
-        if (kategori === 'jastip') {
-            if (nominalTalanganNum < 0) {
-                toast.error('Nominal talangan tidak boleh bernilai negatif!');
-                return;
-            }
-            if (nominalTalanganNum > batasTalangan) {
-                toast.error(`GAGAL: Nominal talangan (Rp ${nominalTalanganNum.toLocaleString('id-ID')}) melebihi batas talangan akun Anda (Rp ${batasTalangan.toLocaleString('id-ID')}).`);
-                return;
-            }
+        if (!deskripsi.trim()) {
+            toast.error("Deskripsi tugas tidak boleh kosong.");
+            return;
+        }
+
+        const numUpah = Number(upahJasa);
+        if (!numUpah || numUpah < 1000) {
+            toast.error("Upah jasa minimal Rp 1.000.");
+            return;
+        }
+
+        const numTalangan = Number(talangan) || 0;
+
+        if (kategori === 'jastip' && numTalangan > batasTalangan) {
+            toast.error(`Nominal talangan (Rp ${numTalangan.toLocaleString('id-ID')}) melebihi batas akun Anda (Rp ${batasTalangan.toLocaleString('id-ID')}).`);
+            return;
         }
 
         setIsSubmitting(true);
+
         try {
-            const payload = {
-                pembuat_id: localStorage.getItem('myUserId'),
-                kategori: kategori,
-                deskripsi: deskripsi,
-                upah_jasa: Number(upahJasa),
-                nominal_talangan: nominalTalanganNum,
+            const res = await axios.post('/api/quests/create', {
+                pembuat_id: myUserId,
+                kategori,
+                deskripsi: deskripsi.trim(),
+                upah_jasa: numUpah,
+                nominal_talangan: numTalangan,
                 latitude: lokasi[0],
                 longitude: lokasi[1]
-            };
+            });
 
-            const response = await axios.post('/api/quests', payload);
-
-            if (response.data.success) {
-                toast.success('Tugas berhasil diterbitkan! Sistem akan mencarikan pekerja terdekat. PIN Rahasia Anda: ' + response.data.data.pin_rahasia);
+            if (res.data.success) {
+                toast.success("Quest Baru Berhasil Dipublikasikan!");
                 navigate('/beranda');
-            }
-        } catch (error) {
-            console.error('Gagal menerbitkan tugas:', error);
-            if (error.response && error.response.data && error.response.data.message) {
-                toast.error('GAGAL: ' + error.response.data.message);
             } else {
-                toast.error('Terjadi kesalahan sistem saat menghubungi server.');
+                toast.error(res.data.message || "Gagal memublikasikan quest.");
             }
+        } catch (err) {
+            const msg = err.response?.data?.message || "Terjadi kesalahan sistem saat membuat quest.";
+            toast.error(msg);
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    return (
-        <div className="fade-up" style={{ padding: '0 0 100px' }}>
-            
-            {/* Header */}
-            <header style={{ 
-                display: 'flex', alignItems: 'center', gap: '14px', 
-                padding: '20px', backgroundColor: 'var(--surface)', 
-                borderBottom: '2px solid var(--border-ink)' 
-            }}>
-                <button onClick={() => navigate(-1)} style={{ 
-                    background: 'var(--bg-main)', border: '2px solid var(--border-ink)', 
-                    borderRadius: '50px', width: '36px', height: '36px', cursor: 'pointer', 
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-main)'
-                }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
-                    </svg>
+    const isGuest = localStorage.getItem('guestMode') === 'true';
+
+    if (isGuest) {
+        return (
+            <div className="app-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center' }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+                <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px' }}>Fitur Khusus Warga</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '24px' }}>
+                    Anda berada dalam mode Tamu. Silakan daftar atau login dengan akun warga untuk membuat tugas baru.
+                </p>
+                <button 
+                    className="btn btn-primary" 
+                    onClick={() => {
+                        localStorage.removeItem('guestMode');
+                        navigate('/');
+                    }}
+                >
+                    Login / Daftar Sekarang
                 </button>
-                <h2>Buat Tugas Baru</h2>
-            </header>
+            </div>
+        );
+    }
 
-            <div style={{ padding: '20px' }}>
-                <form onSubmit={handleTerbitkan} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    return (
+        <div className="app-container" style={{ paddingBottom: '90px' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', borderBottom: '2px solid var(--border-ink)', backgroundColor: 'var(--surface)', position: 'sticky', top: 0, zIndex: 10 }}>
+                <button 
+                    onClick={() => navigate('/beranda')}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                </button>
+                <h1 style={{ fontSize: '18px', fontWeight: 'bold' }}>Buat Tugas Baru</h1>
+            </div>
 
-                    {/* Map Section */}
-                    <div className="clean-card" style={{ padding: '18px 21px', transform: 'none', transition: 'none' }}>
-                        <span className="section-label" style={{ marginBottom: '12px' }}>LOKASI PENGERJAAN (GPS)</span>
-
-                        <div style={{
-                            backgroundColor: 'var(--surface)',
-                            ...(isMapExpanded ? {
-                                position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 9999
-                            } : {
-                                height: '240px', borderRadius: 'var(--radius-medium)', overflow: 'hidden', border: '2px solid var(--border-ink)', marginTop: '12px', marginBottom: '12px', position: 'relative', zIndex: 1
-                            })
-                        }}>
-                            <MapContainer center={lokasi} zoom={15} scrollWheelZoom={false} style={{ height: '100%', width: '100%', zIndex: 1 }}>
-                                <div className="leaflet-top leaflet-right" style={{ pointerEvents: 'none', padding: '10px' }}>
-                                    <div
-                                        className="leaflet-control"
-                                        style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end', clear: 'both' }}
-                                        ref={(ref) => {
-                                            if (ref) {
-                                                L.DomEvent.disableClickPropagation(ref);
-                                                L.DomEvent.disableScrollPropagation(ref);
-                                            }
+            <form onSubmit={handleSubmit} style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                
+                {/* Peta Lokasi (Leaflet) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label className="form-label">Lokasi Pengerjaan (GPS)</label>
+                    <div style={{ 
+                        border: '2px solid var(--border-ink)', 
+                        borderRadius: '16px', 
+                        overflow: 'hidden', 
+                        backgroundColor: 'var(--surface)',
+                        boxShadow: '3px 3px 0 var(--border-ink)',
+                        position: 'relative'
+                    }}>
+                        <div style={{ height: isMapExpanded ? '380px' : '220px', width: '100%', position: 'relative', transition: 'height 0.3s ease' }}>
+                            <MapContainer 
+                                center={lokasi} 
+                                zoom={16} 
+                                style={{ height: '100%', width: '100%' }}
+                                zoomControl={true}
+                            >
+                                <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 1000, display: 'flex', gap: '6px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleDeteksiLokasi}
+                                        disabled={isMemuatLokasi}
+                                        style={{
+                                            backgroundColor: '#8ed462',
+                                            color: 'var(--border-ink)',
+                                            border: '2px solid var(--border-ink)',
+                                            borderRadius: '20px',
+                                            padding: '6px 12px',
+                                            fontSize: '12px',
+                                            fontWeight: 'bold',
+                                            cursor: 'pointer',
+                                            boxShadow: '2px 2px 0 var(--border-ink)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
                                         }}
                                     >
-                                        <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsMapExpanded(!isMapExpanded); }}
-                                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', backgroundColor: 'var(--surface)', color: 'var(--text-main)', border: '2px solid var(--border-ink)', borderRadius: '50px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', fontFamily: 'var(--font-inter)' }}>
-                                            {isMapExpanded ? (
-                                                <><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></svg> Perkecil</>
-                                            ) : (
-                                                <><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg> Perbesar</>
-                                            )}
-                                        </button>
-                                        <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDapatkanLokasi(); }} disabled={isMemuatLokasi}
-                                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', backgroundColor: 'var(--accent-green)', color: 'var(--text-main)', border: '2px solid var(--border-ink)', borderRadius: '50px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', fontFamily: 'var(--font-inter)' }}>
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
-                                            {isMemuatLokasi ? 'Mencari...' : 'Deteksi Otomatis'}
-                                        </button>
-                                    </div>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M2 12h20"/></svg>
+                                        {isMemuatLokasi ? 'Mendeteksi...' : 'Deteksi Otomatis'}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsMapExpanded(!isMapExpanded)}
+                                        style={{
+                                            backgroundColor: 'var(--surface)',
+                                            color: 'var(--border-ink)',
+                                            border: '2px solid var(--border-ink)',
+                                            borderRadius: '20px',
+                                            padding: '6px 10px',
+                                            fontSize: '12px',
+                                            fontWeight: 'bold',
+                                            cursor: 'pointer',
+                                            boxShadow: '2px 2px 0 var(--border-ink)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                                        {isMapExpanded ? 'Kecilkan' : 'Perbesar'}
+                                    </button>
                                 </div>
 
                                 <MapUpdater center={lokasi} />
@@ -276,17 +342,14 @@ export default function BuatTugas() {
                                         }
                                     }}
                                     position={lokasi}
-                                    icon={customIcon}
+                                    icon={questPaperIcon}
                                 >
                                     <Popup>{isLokasiTerkunci ? 'Lokasi dikunci. Jarak geser maksimal 100m.' : 'Klik Deteksi Otomatis dulu.'}</Popup>
                                 </Marker>
-                                {isLokasiTerkunci && (
-                                    <Circle center={lokasi} pathOptions={{ fillColor: '#8ed462', color: '#8ed462' }} radius={1000} />
-                                )}
                             </MapContainer>
                         </div>
-                        <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-                            Pekerja dalam radius 1 KM akan melihat titik ini. Jika titik GPS kurang presisi, Anda bisa <b>menggeser pin</b> maksimal 100 meter dari lokasi aslinya.
+                        <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5', padding: '10px 12px', margin: 0, borderTop: '1px solid var(--border-ink)' }}>
+                            Tentukan titik lokasi pengerjaan tugas pada peta. Jika titik GPS kurang presisi, Anda bisa <b>menggeser ikon kertas quest</b> maksimal 100 meter dari lokasi aslinya.
                         </p>
                     </div>
 
@@ -348,95 +411,54 @@ export default function BuatTugas() {
                             rows="3"
                             className="form-input"
                             required
-                            id="buat-deskripsi"
                         />
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {/* Bubble Rekomendasi Upah Berdasarkan Jarak Haversine */}
-                        {lokasiAsli && lokasi && getDistance(lokasiAsli, lokasi) > 10 && (
-                            <div style={{
-                                backgroundColor: 'var(--color-sandstone, #f7f4ed)',
-                                border: '2px solid var(--border-ink)',
-                                borderRadius: 'var(--radius-small, 12px)',
-                                padding: '12px 14px',
-                                marginBottom: '6px',
-                                fontSize: '12.5px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                color: 'var(--text-main)',
-                                lineHeight: '1.5',
-                                textAlign: 'left'
-                            }}>
-                                <span style={{ fontSize: '1.6rem' }}>💡</span>
-                                <div>
-                                    Jarak ke lokasi tugas: <strong>{getDistance(lokasiAsli, lokasi) >= 1000 ? `${(getDistance(lokasiAsli, lokasi) / 1000).toFixed(2)} KM` : `${Math.round(getDistance(lokasiAsli, lokasi))} meter`}</strong>. <br/>
-                                    Rekomendasi upah wajar: <strong>Rp {Math.max(3000, Math.round((3000 + getDistance(lokasiAsli, lokasi) * 5) / 500) * 500).toLocaleString('id-ID')}</strong> (Rp 3.000 tarif dasar + Rp 5/meter).
-                                </div>
-                            </div>
-                        )}
-
-                        <label className="form-label">Upah Lelah Pekerja (Rp)</label>
-                        <input type="number" value={upahJasa} onChange={(e) => setUpahJasa(e.target.value)} placeholder="Contoh: 5000" className="form-input" required id="buat-upah" />
-                        {Number(upahJasa) > 0 && Number(upahJasa) < 2000 && (
-                            <div className="speech-bubble" style={{ color: '#EF4444', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '1px' }}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                                <span>Upah ini tidak masuk akal! Harap berikan nominal yang manusiawi untuk pekerja.</span>
-                            </div>
-                        )}
-                        {Number(upahJasa) >= 2000 && Number(upahJasa) < 5000 && (
-                            <div className="speech-bubble" style={{ color: 'var(--accent-coral)', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '1px' }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                                <span>Upah agak kemurahan nih, mungkin akan lambat diambil pekerja.</span>
-                            </div>
-                        )}
-                        {Number(upahJasa) >= 20000 && Number(upahJasa) <= 100000 && (
-                            <div className="speech-bubble" style={{ color: 'var(--accent-green)', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '1px' }}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
-                                <span>Upah yang sangat dermawan! Tugas Anda pasti langsung disambar.</span>
-                            </div>
-                        )}
-                        {Number(upahJasa) > 100000 && (
-                            <div className="speech-bubble" style={{ color: '#F59E0B', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '1px' }}><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                                <span>Nominalnya terlalu besar! Harap jangan terlalu dermawan.</span>
-                            </div>
-                        )}
-                    </div>
-
-                    {kategori === 'jastip' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <label className="form-label">Dana Talangan Pekerja (Rp) — <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>Opsional</span></label>
-                            <input type="number" value={talangan} onChange={(e) => setTalangan(e.target.value)} placeholder="Contoh: 15000" className="form-input" id="buat-talangan" />
-                            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Maksimal talangan akun Anda: Rp {batasTalangan.toLocaleString('id-ID')}</p>
-                            {Number(talangan) > batasTalangan && (
-                                <div className="speech-bubble" style={{ color: '#EF4444', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '1px' }}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                                    <span>Nominal talangan melebihi limit batas talangan akun Anda (Maks Rp {batasTalangan.toLocaleString('id-ID')})!</span>
-                                </div>
-                            )}
-                            {Number(talangan) < 0 && (
-                                <div className="speech-bubble" style={{ color: '#EF4444', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '1px' }}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                                    <span>Nominal talangan tidak boleh bernilai negatif!</span>
-                                </div>
-                            )}
+                            <label className="form-label">Upah Jasa (Rp)</label>
+                            <input
+                                type="number"
+                                value={upahJasa}
+                                onChange={(e) => setUpahJasa(e.target.value)}
+                                placeholder="5000"
+                                className="form-input"
+                                min="1000"
+                                step="1000"
+                                required
+                            />
                         </div>
-                    )}
 
-                    {/* Info Box */}
-                    <div className="info-box" style={{ borderRadius: 'var(--radius-small)', borderLeft: '4px solid var(--accent-green)' }}>
-                        <p style={{ fontSize: '13px', color: 'var(--text-main)', lineHeight: '1.5' }}>
-                            <strong>Perhatian:</strong> Pastikan upah sepadan dengan beban fisik/jarak. Sistem akan mempublikasikan tugas ini ke warga terdekat.
-                        </p>
+                        {kategori === 'jastip' && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <label className="form-label">Dana Talangan (Rp)</label>
+                                <input
+                                    type="number"
+                                    value={talangan}
+                                    onChange={(e) => setTalangan(e.target.value)}
+                                    placeholder="20000"
+                                    className="form-input"
+                                    max={batasTalangan}
+                                    step="1000"
+                                />
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                    Maksimal: Rp {batasTalangan.toLocaleString('id-ID')}
+                                </span>
+                            </div>
+                        )}
                     </div>
 
-                    <button type="submit" className="btn btn-primary" disabled={isSubmitting} id="buat-submit" style={{ marginTop: '4px' }}>
-                        {isSubmitting ? 'Mengirim ke Sistem...' : 'Terbitkan Tugas'}
+                    <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="btn btn-primary"
+                        style={{ marginTop: '12px', width: '100%', padding: '14px', fontSize: '16px' }}
+                    >
+                        {isSubmitting ? 'Memublikasikan Quest...' : '🚀 Publikasikan Quest'}
                     </button>
-                </form>
-            </div>
+
+                </div>
+            </form>
         </div>
     );
 }
