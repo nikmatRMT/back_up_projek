@@ -75,7 +75,7 @@ exports.createQuest = async (req, res) => {
     }
 };
 
-// 2. Mencari Tugas Terdekat (AUTO SWEEPER TEST TAKEN 1 MENIT)
+// 2. Mencari Tugas Terdekat (OPEN: 10 MENIT, TAKEN: 1 MENIT UNTUK TES WORKER NO-SHOW)
 exports.getNearbyQuests = async (req, res) => {
     try {
         const { longitude, latitude, radius = 1000 } = req.query;
@@ -84,17 +84,17 @@ exports.getNearbyQuests = async (req, res) => {
             return res.status(400).json({ success: false, message: "Longitude dan Latitude wajib diisi" });
         }
 
-        // AUTO-SWEEP ON-DEMAND UNTUK VERCEL CLOUD:
         const now = Date.now();
+        const tenMinutesAgo = new Date(now - 10 * 60 * 1000); 
         const oneMinuteAgo = new Date(now - 1 * 60 * 1000); 
 
-        // 1. Batalkan OPEN > 1 min
+        // 1. OPEN > 10 menit (agar tidak batal duluan saat mau diambil)
         await Quest.updateMany(
-            { status: 'OPEN', created_at: { $lt: oneMinuteAgo } },
+            { status: 'OPEN', created_at: { $lt: tenMinutesAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'TIMEOUT_OPEN' } }
         );
 
-        // 2. Batalkan TAKEN > 1 min (Worker No-Show Test)
+        // 2. TAKEN > 1 menit (Otomatis Batal WORKER_NO_SHOW setelah diambil 1 menit)
         await Quest.updateMany(
             { status: 'TAKEN', taken_at: { $lt: oneMinuteAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'WORKER_NO_SHOW' } }
