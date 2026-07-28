@@ -27,7 +27,6 @@ exports.createQuest = async (req, res) => {
     try {
         const { pembuat_id, kategori, deskripsi, upah_jasa, nominal_talangan, longitude, latitude } = req.body;
 
-        // Validasi: Cek apakah user masih memiliki tugas yang aktif (OPEN atau TAKEN) sebagai Klien maupun Pekerja
         const activeQuest = await Quest.findOne({
             $or: [
                 { pembuat_id: pembuat_id },
@@ -43,7 +42,6 @@ exports.createQuest = async (req, res) => {
             });
         }
 
-        // Validasi Batas Talangan
         const user = await User.findById(pembuat_id);
         if (!user) {
             return res.status(404).json({ success: false, message: "User pembuat tidak ditemukan." });
@@ -55,7 +53,6 @@ exports.createQuest = async (req, res) => {
             });
         }
 
-        // Generate PIN Rahasia 4-digit
         const pin_rahasia = Math.floor(1000 + Math.random() * 9000).toString();
 
         const newQuest = await Quest.create({
@@ -78,7 +75,7 @@ exports.createQuest = async (req, res) => {
     }
 };
 
-// 2. Mencari Tugas Terdekat (Algoritma Haversine dengan $geoNear + AUTO SWEEPER)
+// 2. Mencari Tugas Terdekat (Algoritma Haversine dengan $geoNear + AUTO SWEEPER RESMI 4 JAM)
 exports.getNearbyQuests = async (req, res) => {
     try {
         const { longitude, latitude, radius = 1000 } = req.query;
@@ -87,12 +84,11 @@ exports.getNearbyQuests = async (req, res) => {
             return res.status(400).json({ success: false, message: "Longitude dan Latitude wajib diisi" });
         }
 
-        // AUTO-SWEEP ON-DEMAND (Khusus Vercel Serverless & Server): 
-        // Sebelum mengambil daftar quest, otomatis batalkan quest OPEN yang sudah kedaluwarsa (> 1 menit untuk pengujian)
+        // AUTO-SWEEP ON-DEMAND: Batalkan quest OPEN yang kedaluwarsa (> 4 jam standar resmi)
         const now = Date.now();
-        const oneMinuteAgo = new Date(now - 1 * 60 * 1000); 
+        const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000); 
         await Quest.updateMany(
-            { status: 'OPEN', created_at: { $lt: oneMinuteAgo } },
+            { status: 'OPEN', created_at: { $lt: fourHoursAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'TIMEOUT_OPEN' } }
         );
 
