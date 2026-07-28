@@ -8,29 +8,40 @@ import { getCurrentLocation } from '../utils/geolocationHelper';
 
 // Ikon kustom Kertas Quest (Scroll / Document) dengan tema Neobrutalism
 const questPaperIcon = new L.DivIcon({
-    html: `<div style="
-        background: #ff705d;
-        color: white;
-        padding: 6px;
-        border-radius: 50%;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        border: 2.5px solid #000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 38px;
-        height: 38px;
-    ">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <line x1="8" y1="13" x2="16" y2="13"></line>
-            <line x1="8" y1="17" x2="14" y2="17"></line>
-        </svg>
+    html: `<div style="position: relative; width: 38px; height: 46px; display: flex; flex-direction: column; align-items: center;">
+        <div style="
+            background: #ff705d;
+            color: white;
+            border-radius: 50%;
+            border: 2.5px solid #000;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            z-index: 2;
+        ">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="8" y1="13" x2="16" y2="13"></line>
+                <line x1="8" y1="17" x2="14" y2="17"></line>
+            </svg>
+        </div>
+        <div style="
+            width: 0; 
+            height: 0; 
+            border-left: 7px solid transparent;
+            border-right: 7px solid transparent;
+            border-top: 10px solid #000;
+            margin-top: -3px;
+            z-index: 1;
+        "></div>
     </div>`,
     className: 'custom-marker',
-    iconSize: [38, 38],
-    iconAnchor: [19, 19]
+    iconSize: [38, 46],
+    iconAnchor: [19, 46]
 });
 
 function MapUpdater({ center }) {
