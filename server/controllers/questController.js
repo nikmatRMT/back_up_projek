@@ -75,7 +75,7 @@ exports.createQuest = async (req, res) => {
     }
 };
 
-// 2. Mencari Tugas Terdekat (OPEN: 10 MENIT, TAKEN: 1 MENIT UNTUK TES WORKER NO-SHOW)
+// 2. Mencari Tugas Terdekat (AUTO SWEEPER RESMI: OPEN 4 JAM, TAKEN 2 JAM)
 exports.getNearbyQuests = async (req, res) => {
     try {
         const { longitude, latitude, radius = 1000 } = req.query;
@@ -84,19 +84,20 @@ exports.getNearbyQuests = async (req, res) => {
             return res.status(400).json({ success: false, message: "Longitude dan Latitude wajib diisi" });
         }
 
+        // AUTO-SWEEP ON-DEMAND (Standar Resmi Produksi)
         const now = Date.now();
-        const tenMinutesAgo = new Date(now - 10 * 60 * 1000); 
-        const oneMinuteAgo = new Date(now - 1 * 60 * 1000); 
+        const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000); 
+        const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000); 
 
-        // 1. OPEN > 10 menit (agar tidak batal duluan saat mau diambil)
+        // 1. OPEN > 4 jam
         await Quest.updateMany(
-            { status: 'OPEN', created_at: { $lt: tenMinutesAgo } },
+            { status: 'OPEN', created_at: { $lt: fourHoursAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'TIMEOUT_OPEN' } }
         );
 
-        // 2. TAKEN > 1 menit (Otomatis Batal WORKER_NO_SHOW setelah diambil 1 menit)
+        // 2. TAKEN > 2 jam (Worker No-Show)
         await Quest.updateMany(
-            { status: 'TAKEN', taken_at: { $lt: oneMinuteAgo } },
+            { status: 'TAKEN', taken_at: { $lt: twoHoursAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'WORKER_NO_SHOW' } }
         );
 
@@ -273,17 +274,17 @@ exports.deleteQuest = async (req, res) => {
     }
 };
 
-// 6. Mendapatkan Tugas Aktif (Dengan AUTO-SWEEP TAKEN > 1 MENIT)
+// 6. Mendapatkan Tugas Aktif (Dengan AUTO-SWEEP RESMI TAKEN > 2 JAM)
 exports.getMyActiveQuest = async (req, res) => {
     try {
         const { user_id } = req.query;
         if (!user_id) return res.status(400).json({ success: false, message: "User ID diperlukan" });
 
-        // AUTO-SWEEP TAKEN > 1 MENIT UNTUK PENGUJIAN WORKER NO-SHOW
+        // AUTO-SWEEP RESMI TAKEN > 2 JAM (WORKER NO-SHOW)
         const now = Date.now();
-        const oneMinuteAgo = new Date(now - 1 * 60 * 1000);
+        const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000);
         await Quest.updateMany(
-            { status: 'TAKEN', taken_at: { $lt: oneMinuteAgo } },
+            { status: 'TAKEN', taken_at: { $lt: twoHoursAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'WORKER_NO_SHOW' } }
         );
 
