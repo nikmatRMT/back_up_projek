@@ -6,8 +6,8 @@ exports.getDashboardStats = async (req, res) => {
     try {
         const totalUsers = await User.countDocuments();
         
-        // Tugas yang sedang dikerjakan (TAKEN)
-        const activeQuests = await Quest.countDocuments({ status: 'TAKEN' });
+        // FIX BUG: Tugas yang sedang berjalan mencakup TAKEN maupun IN_PROGRESS (Sedang Dikerjakan)
+        const activeQuests = await Quest.countDocuments({ status: { $in: ['TAKEN', 'IN_PROGRESS'] } });
         
         // Tugas yang sudah selesai (COMPLETED) hari ini
         const startOfDay = new Date();
@@ -18,7 +18,7 @@ exports.getDashboardStats = async (req, res) => {
             created_at: { $gte: startOfDay }
         });
 
-        // Deteksi order fiktif / dibatalkan (Simulasi: Menghitung jumlah tugas berstatus CANCELED)
+        // Deteksi order fiktif / dibatalkan (Menghitung jumlah tugas berstatus CANCELED)
         const fictitiousOrders = await Quest.countDocuments({ status: 'CANCELED' });
 
         res.json({
@@ -38,7 +38,7 @@ exports.getDashboardStats = async (req, res) => {
 // Mendapatkan daftar pengguna untuk tabel
 exports.getUsers = async (req, res) => {
     try {
-        const users = await User.find().sort({ created_at: -1 }); // terbaru di atas
+        const users = await User.find().sort({ created_at: -1 });
         res.json({
             success: true,
             data: users
@@ -58,7 +58,6 @@ exports.toggleUserStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
         }
 
-        // Toggle status
         if (user.status === 'ACTIVE') {
             user.status = 'SUSPENDED';
         } else {
@@ -87,7 +86,6 @@ exports.deleteUser = async (req, res) => {
             return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
         }
 
-        // Opsional: Hapus tugas yang terkait dengan user ini jika diperlukan
         await Quest.deleteMany({ pembuat_id: userId });
 
         res.json({
@@ -144,11 +142,11 @@ exports.getReportsData = async (req, res) => {
 
         const totalQuests = await Quest.countDocuments();
         const openQuests = await Quest.countDocuments({ status: 'OPEN' });
-        const takenQuests = await Quest.countDocuments({ status: 'TAKEN' });
+        // FIX BUG: Hitung tugas berjalan mencakup TAKEN dan IN_PROGRESS
+        const takenQuests = await Quest.countDocuments({ status: { $in: ['TAKEN', 'IN_PROGRESS'] } });
         const completedQuests = await Quest.countDocuments({ status: 'COMPLETED' });
         const canceledQuests = await Quest.countDocuments({ status: 'CANCELED' });
 
-        // Hitung perputaran uang dari tugas yang selesai
         const completedList = await Quest.find({ status: 'COMPLETED' })
             .populate('pembuat_id', 'nama_lengkap')
             .populate('pekerja_id', 'nama_lengkap');
@@ -160,12 +158,10 @@ exports.getReportsData = async (req, res) => {
             totalTalangan += q.nominal_talangan || 0;
         });
 
-        // Hitung tugas berdasarkan kategori
         const categoryCounts = await Quest.aggregate([
             { $group: { _id: "$kategori", count: { $sum: 1 } } }
         ]);
 
-        // Daftar pengguna dan tugas untuk visualisasi/cetak
         const users = await User.find().sort({ created_at: -1 });
         const quests = await Quest.find()
             .populate('pembuat_id', 'nama_lengkap email no_whatsapp')
@@ -198,7 +194,7 @@ exports.getReportsData = async (req, res) => {
     }
 };
 
-// 6. Reset password pengguna ke default "warga123"
+// Reset password pengguna
 exports.resetUserPassword = async (req, res) => {
     const bcrypt = require('bcryptjs');
     try {
