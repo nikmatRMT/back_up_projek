@@ -7,7 +7,7 @@ function getHaversineDistance(coords1, coords2) {
     const lon2 = coords2[0];
     const lat2 = coords2[1];
 
-    const R = 6371e3; // metres
+    const R = 6371e3;
     const phi1 = lat1 * Math.PI / 180;
     const phi2 = lat2 * Math.PI / 180;
     const deltaPhi = (lat2 - lat1) * Math.PI / 180;
@@ -18,7 +18,7 @@ function getHaversineDistance(coords1, coords2) {
         Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    return R * c; // in metres
+    return R * c;
 }
 
 
@@ -75,7 +75,7 @@ exports.createQuest = async (req, res) => {
     }
 };
 
-// 2. Mencari Tugas Terdekat (Algoritma Haversine dengan $geoNear + AUTO SWEEPER RESMI 4 JAM)
+// 2. Mencari Tugas Terdekat (AUTO SWEEPER TEST TAKEN 1 MENIT)
 exports.getNearbyQuests = async (req, res) => {
     try {
         const { longitude, latitude, radius = 1000 } = req.query;
@@ -84,12 +84,20 @@ exports.getNearbyQuests = async (req, res) => {
             return res.status(400).json({ success: false, message: "Longitude dan Latitude wajib diisi" });
         }
 
-        // AUTO-SWEEP ON-DEMAND (Standar Resmi 4 Jam untuk Vercel & Local):
+        // AUTO-SWEEP ON-DEMAND UNTUK VERCEL CLOUD:
         const now = Date.now();
-        const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000); 
+        const oneMinuteAgo = new Date(now - 1 * 60 * 1000); 
+
+        // 1. Batalkan OPEN > 1 min
         await Quest.updateMany(
-            { status: 'OPEN', created_at: { $lt: fourHoursAgo } },
+            { status: 'OPEN', created_at: { $lt: oneMinuteAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'TIMEOUT_OPEN' } }
+        );
+
+        // 2. Batalkan TAKEN > 1 min (Worker No-Show Test)
+        await Quest.updateMany(
+            { status: 'TAKEN', taken_at: { $lt: oneMinuteAgo } },
+            { $set: { status: 'CANCELED', cancel_reason: 'WORKER_NO_SHOW' } }
         );
 
         const quests = await Quest.aggregate([
@@ -265,11 +273,19 @@ exports.deleteQuest = async (req, res) => {
     }
 };
 
-// 6. Mendapatkan Tugas Aktif
+// 6. Mendapatkan Tugas Aktif (Dengan AUTO-SWEEP TAKEN > 1 MENIT)
 exports.getMyActiveQuest = async (req, res) => {
     try {
         const { user_id } = req.query;
         if (!user_id) return res.status(400).json({ success: false, message: "User ID diperlukan" });
+
+        // AUTO-SWEEP TAKEN > 1 MENIT UNTUK PENGUJIAN WORKER NO-SHOW
+        const now = Date.now();
+        const oneMinuteAgo = new Date(now - 1 * 60 * 1000);
+        await Quest.updateMany(
+            { status: 'TAKEN', taken_at: { $lt: oneMinuteAgo } },
+            { $set: { status: 'CANCELED', cancel_reason: 'WORKER_NO_SHOW' } }
+        );
 
         const activeQuest = await Quest.findOne({
             $or: [
