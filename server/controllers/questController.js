@@ -75,7 +75,7 @@ exports.createQuest = async (req, res) => {
     }
 };
 
-// 2. Mencari Tugas Terdekat (Algoritma Haversine dengan $geoNear + AUTO SWEEPER RESMI 4 JAM)
+// 2. Mencari Tugas Terdekat (AUTO SWEEPER TEST 1 MENIT UNTUK VERCEL CLOUD)
 exports.getNearbyQuests = async (req, res) => {
     try {
         const { longitude, latitude, radius = 1000 } = req.query;
@@ -84,11 +84,11 @@ exports.getNearbyQuests = async (req, res) => {
             return res.status(400).json({ success: false, message: "Longitude dan Latitude wajib diisi" });
         }
 
-        // AUTO-SWEEP ON-DEMAND: Batalkan quest OPEN yang kedaluwarsa (> 4 jam standar resmi)
+        // AUTO-SWEEP ON-DEMAND UNTUK VERCEL CLOUD: 1 MENIT
         const now = Date.now();
-        const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000); 
+        const oneMinuteAgo = new Date(now - 1 * 60 * 1000); 
         await Quest.updateMany(
-            { status: 'OPEN', created_at: { $lt: fourHoursAgo } },
+            { status: 'OPEN', created_at: { $lt: oneMinuteAgo } },
             { $set: { status: 'CANCELED', cancel_reason: 'TIMEOUT_OPEN' } }
         );
 
