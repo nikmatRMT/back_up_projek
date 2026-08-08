@@ -3,7 +3,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 // Secret Key untuk JWT (Sebaiknya di .env, tapi untuk keperluan skripsi kita pakai string default)
-const JWT_SECRET = process.env.JWT_SECRET || 'rahasia_jasa_warga_guntung_paikat';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET wajib diatur pada environment.');
+}
 
 // Registrasi Pengguna Baru
 exports.register = async (req, res) => {

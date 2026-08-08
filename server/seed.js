@@ -1,10 +1,12 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
+const { requireMaintenanceMode } = require('./maintenanceGuard');
+requireMaintenanceMode('seed.js');
 const User = require('./models/User');
 const Quest = require('./models/Quest');
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/jasa_lepas_db';
+const MONGODB_URI = process.env.MONGODB_URI;
 
 async function seedDatabase() {
     try {

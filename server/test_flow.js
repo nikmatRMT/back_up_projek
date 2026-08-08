@@ -1,4 +1,6 @@
 const http = require('http');
+const { requireMaintenanceMode } = require('./maintenanceGuard');
+requireMaintenanceMode('test_flow.js', { requireMongoUri: false });
 
 // Helper untuk melakukan HTTP Request
 const request = (path, method = 'GET', body = null) => {

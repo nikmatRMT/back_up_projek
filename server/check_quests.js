@@ -1,6 +1,7 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 
-const mongoUri = "mongodb://nik:8nXfNKk6dvXz42EC@ac-bcl2dzm-shard-00-00.2xoqsy8.mongodb.net:27017/jasa_lepas_db?ssl=true&authSource=admin&retryWrites=true&w=majority";
+const mongoUri = process.env.MONGODB_URI;
 
 const questSchema = new mongoose.Schema({
     deskripsi: String,

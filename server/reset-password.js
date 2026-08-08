@@ -1,8 +1,11 @@
+require('dotenv').config();
+const { requireMaintenanceMode } = require('./maintenanceGuard');
+requireMaintenanceMode('reset-password.js');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const User = require('./models/User');
 
-const MONGODB_URI = 'mongodb://nik:8nXfNKk6dvXz42EC@ac-bcl2dzm-shard-00-00.2xoqsy8.mongodb.net:27017/jasa_lepas_db?ssl=true&authSource=admin&retryWrites=true&w=majority';
+const MONGODB_URI = process.env.MONGODB_URI;
 
 async function reset() {
     try {
