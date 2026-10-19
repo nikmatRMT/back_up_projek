@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import BottomNav from '../components/BottomNav';
+import { History, ShoppingBag, Wrench, FileText, ShieldCheck } from 'lucide-react';
 
 const Riwayat = () => {
     const navigate = useNavigate();
@@ -32,7 +34,7 @@ const Riwayat = () => {
     };
 
     return (
-        <div style={{ backgroundColor: 'var(--bg-main)', minHeight: '100vh', paddingBottom: '40px' }}>
+        <div style={{ backgroundColor: 'var(--bg-main)', minHeight: '100vh', paddingBottom: '110px' }}>
 
             {/* Header */}
             <header style={{ 
@@ -63,9 +65,10 @@ const Riwayat = () => {
                             borderRadius: '50px', 
                             border: '2px solid var(--border-ink)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                            margin: '0 auto 16px' 
+                            margin: '0 auto 16px',
+                            boxShadow: '2px 2px 0 var(--border-ink)'
                         }}>
-                            <span style={{ fontSize: '24px' }}>📜</span>
+                            <History size={28} strokeWidth={2.4} color="var(--color-ink-black)" />
                         </div>
                         <h3 style={{ marginBottom: '8px' }}>Belum Ada Riwayat</h3>
                         <p style={{ fontSize: '14px' }}>Selesaikan tugas sebagai klien atau pekerja untuk melihat catatan riwayat di sini.</p>
@@ -82,13 +85,13 @@ const Riwayat = () => {
                             const statusSelesai = quest.status === 'COMPLETED';
 
                             // Ikon kategori
-                            let kategoriIcon = '📄';
+                            let KategoriIconComponent = FileText;
                             let kategoriLabel = 'Lainnya';
                             if (quest.kategori === 'jastip') {
-                                kategoriIcon = '🛒';
+                                KategoriIconComponent = ShoppingBag;
                                 kategoriLabel = 'Jasa Titip (Jastip)';
                             } else if (quest.kategori === 'fisik') {
-                                kategoriIcon = '🛠️';
+                                KategoriIconComponent = Wrench;
                                 kategoriLabel = 'Jasa Fisik';
                             }
 
@@ -121,14 +124,16 @@ const Riwayat = () => {
                                     {/* Kategori & Deskripsi */}
                                     <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', marginBottom: '14px' }}>
                                         <div style={{ 
-                                            fontSize: '24px', 
                                             padding: '8px', 
                                             backgroundColor: 'var(--bg-main)', 
                                             border: '2px solid var(--border-ink)', 
                                             borderRadius: '8px',
-                                            lineHeight: '1'
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            boxShadow: '1.5px 1.5px 0 var(--border-ink)'
                                         }}>
-                                            {kategoriIcon}
+                                            <KategoriIconComponent size={20} strokeWidth={2.2} color="var(--color-ink-black)" />
                                         </div>
                                         <div>
                                             <span style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
@@ -165,24 +170,9 @@ const Riwayat = () => {
                                                 </span>
                                                 <strong style={{ color: 'var(--text-main)' }}>{mitra.nama_lengkap}</strong>
                                             </div>
-                                            {mitra.no_whatsapp && (
-                                                <a 
-                                                    href={`https://wa.me/${mitra.no_whatsapp}`} 
-                                                    target="_blank" 
-                                                    rel="noopener noreferrer"
-                                                    style={{ 
-                                                        color: 'var(--accent-green)', 
-                                                        fontWeight: '700', 
-                                                        textDecoration: 'none',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '4px',
-                                                        borderBottom: '1.5px solid var(--accent-green)'
-                                                    }}
-                                                >
-                                                    💬 Hubungi WA
-                                                </a>
-                                            )}
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10.5px', fontWeight: '700' }}>
+                                                <ShieldCheck size={13} strokeWidth={2.2} color="var(--accent-green)" /> NOMOR DILINDUNGI
+                                            </span>
                                         </div>
                                     )}
 
@@ -236,6 +226,7 @@ const Riwayat = () => {
                     </div>
                 )}
             </div>
+            <BottomNav activePage="profil" />
         </div>
     );
 };

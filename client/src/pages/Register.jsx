@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Logo from '../components/Logo';
 import { saveStorageItem, removeStorageItem } from '../utils/storageHelper';
+import { ShieldCheck } from 'lucide-react';
 
 export default function Register() {
     const navigate = useNavigate();
@@ -49,13 +50,13 @@ export default function Register() {
                 // Set default authorization header untuk request selanjutnya
                 axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
                 
-                toast.error('Pendaftaran berhasil! Mengalihkan ke halaman utama...');
+                toast.success('Akun berhasil dibuat. Lanjutkan verifikasi identitas.');
                 
                 // Arahkan berdasarkan role pengguna
                 if (res.data.user.role === 'admin') {
                     navigate('/admin');
                 } else {
-                    navigate('/beranda');
+                    navigate('/verifikasi-identitas', { replace: true, state: { fromRegistration: true } });
                 }
             }
         } catch (err) {
@@ -75,6 +76,7 @@ export default function Register() {
                 </div>
                 <h1 style={{ fontSize: 'var(--text-heading-sm)', marginBottom: '8px' }}>Buat Akun Baru</h1>
                 <p style={{ fontSize: '14px' }}>Bergabunglah dengan komunitas Jasa Warga Guntung Paikat.</p>
+                <div style={{ display: 'inline-flex', marginTop: '13px', padding: '6px 11px', background: 'var(--accent-yellow)', border: '1.5px solid var(--border-ink)', borderRadius: '999px', fontSize: '10px', fontWeight: '800' }}>LANGKAH 1 DARI 2 · DATA AKUN</div>
             </div>
 
             {/* Form Card */}
@@ -85,6 +87,14 @@ export default function Register() {
                         {error}
                     </div>
                 )}
+
+                <div style={{ marginBottom: '17px', padding: '12px 13px', background: '#e5f6da', border: '1.5px solid var(--border-ink)', borderRadius: '13px', fontSize: '11px', lineHeight: '1.5' }}>
+                    <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                        <ShieldCheck size={15} strokeWidth={2.4} color="var(--color-ink-black)" />
+                        Verifikasi identitas pada langkah berikutnya
+                    </strong>
+                    Setelah akun dibuat, Anda akan diarahkan untuk verifikasi KTP sebelum dapat mengambil atau mengerjakan quest.
+                </div>
 
                 <form onSubmit={handleRegister}>
                     <div style={{ marginBottom: '16px' }}>
@@ -154,7 +164,7 @@ export default function Register() {
                         disabled={isLoading}
                         id="register-submit"
                     >
-                        {isLoading ? 'Memproses...' : 'DAFTAR SEKARANG'}
+                        {isLoading ? 'Memproses...' : 'BUAT AKUN & LANJUT VERIFIKASI'}
                     </button>
                 </form>
                 

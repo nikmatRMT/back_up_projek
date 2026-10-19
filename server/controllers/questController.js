@@ -1,5 +1,6 @@
 const Quest = require('../models/Quest');
 const User = require('../models/User');
+const ChatMessage = require('../models/ChatMessage');
 
 function getHaversineDistance(coords1, coords2) {
     const lon1 = coords1[0];
@@ -32,7 +33,7 @@ exports.createQuest = async (req, res) => {
                 { pembuat_id: pembuat_id },
                 { pekerja_id: pembuat_id }
             ],
-            status: { $in: ['OPEN', 'TAKEN'] }
+            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS', 'AWAITING_PAYMENT'] }
         });
 
         if (activeQuest) {
@@ -45,6 +46,13 @@ exports.createQuest = async (req, res) => {
         const user = await User.findById(pembuat_id);
         if (!user) {
             return res.status(404).json({ success: false, message: "User pembuat tidak ditemukan." });
+        }
+        if (user.kyc_status !== 'VERIFIED') {
+            return res.status(403).json({
+                success: false,
+                code: 'KYC_REQUIRED',
+                message: 'Verifikasi identitas terlebih dahulu sebelum membuat quest.'
+            });
         }
         if (kategori === 'jastip' && nominal_talangan > user.batas_talangan) {
             return res.status(400).json({
@@ -66,6 +74,10 @@ exports.createQuest = async (req, res) => {
                 coordinates: [parseFloat(longitude), parseFloat(latitude)]
             },
             pin_rahasia,
+            negotiation_status: 'NOT_STARTED',
+            payment_required: true,
+            payment_status: 'UNPAID',
+            chat_status: 'ACTIVE',
             expired_at: new Date(Date.now() + 2 * 60 * 60 * 1000)
         });
 
@@ -128,12 +140,20 @@ exports.takeQuest = async (req, res) => {
         const { id } = req.params;
         const { pekerja_id, jarak_meter, transport_mode } = req.body;
 
+        const worker = await User.findById(pekerja_id).select('kyc_status');
+        if (!worker) {
+            return res.status(404).json({ success: false, message: 'Akun Pekerja tidak ditemukan.' });
+        }
+        if (worker.kyc_status !== 'VERIFIED') {
+            return res.status(403).json({ success: false, code: 'KYC_REQUIRED', message: 'Verifikasi identitas (KTP) terlebih dahulu sebelum mengambil quest.' });
+        }
+
         const activeQuest = await Quest.findOne({
             $or: [
                 { pembuat_id: pekerja_id },
                 { pekerja_id: pekerja_id }
             ],
-            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS'] }
+            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS', 'AWAITING_PAYMENT'] }
         });
 
         if (activeQuest) {
@@ -151,7 +171,12 @@ exports.takeQuest = async (req, res) => {
                     pekerja_id: pekerja_id,
                     taken_at: new Date(),
                     jarak_meter: jarak_meter || 0,
-                    transport_mode: transport_mode || 'walk'
+                    transport_mode: transport_mode || 'walk',
+                    negotiation_status: 'PENDING',
+                    agreed_upah: null,
+                    agreed_duration: null,
+                    payment_status: 'UNPAID',
+                    chat_status: 'ACTIVE'
                 }
             },
             { new: true }
@@ -173,6 +198,13 @@ exports.startQuest = async (req, res) => {
         const { id } = req.params;
         const { pekerja_id } = req.body;
 
+        const currentQuest = await Quest.findById(id);
+        if (!currentQuest) {
+            return res.status(404).json({ success: false, message: 'Tugas tidak ditemukan.' });
+        }
+        if (currentQuest.negotiation_status !== 'AGREED') {
+            return res.status(400).json({ success: false, code: 'NEGOTIATION_REQUIRED', message: 'Sepakati penawaran melalui chat terlebih dahulu.' });
+        }
         const quest = await Quest.findOneAndUpdate(
             { _id: id, pekerja_id: pekerja_id, status: 'TAKEN' },
             {
@@ -226,16 +258,25 @@ exports.completeQuest = async (req, res) => {
             }
         }
 
+        quest.completion_verified_at = new Date();
+        if (quest.payment_required) {
+            quest.status = 'AWAITING_PAYMENT';
+            quest.payment_status = 'UNPAID';
+            await quest.save();
+            return res.status(200).json({ success: true, message: 'PIN benar. Pekerjaan terverifikasi dan menunggu pembayaran Klien.', data: quest });
+        }
+
         quest.status = 'COMPLETED';
         quest.completed_at = new Date();
+        quest.credited_at = new Date();
+        quest.chat_status = 'RETENTION';
+        quest.chat_delete_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         await quest.save();
 
-        const totalPendapatan = quest.upah_jasa + (quest.nominal_talangan || 0);
-        await User.findByIdAndUpdate(quest.pekerja_id, {
-            $inc: { saldo: totalPendapatan }
-        });
-
-        res.status(200).json({ success: true, message: "Tugas selesai dengan sukses!", data: quest });
+        await ChatMessage.updateMany({ quest_id: quest._id }, { $set: { delete_at: quest.chat_delete_at } });
+        const totalPendapatan = (quest.agreed_upah || quest.upah_jasa) + (quest.nominal_talangan || 0);
+        await User.findByIdAndUpdate(quest.pekerja_id, { $inc: { saldo: totalPendapatan } });
+        return res.status(200).json({ success: true, message: 'Tugas selesai dengan sukses!', data: quest });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -293,10 +334,10 @@ exports.getMyActiveQuest = async (req, res) => {
                 { pembuat_id: user_id },
                 { pekerja_id: user_id }
             ],
-            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS'] }
+            status: { $in: ['OPEN', 'TAKEN', 'IN_PROGRESS', 'AWAITING_PAYMENT'] }
         })
-            .populate('pembuat_id', 'nama_lengkap no_whatsapp email')
-            .populate('pekerja_id', 'nama_lengkap no_whatsapp email');
+            .populate('pembuat_id', 'nama_lengkap email kyc_status')
+            .populate('pekerja_id', 'nama_lengkap email kyc_status');
 
         if (!activeQuest) {
             return res.status(404).json({ success: false, message: "Tidak ada tugas aktif." });
@@ -401,8 +442,8 @@ exports.getHistory = async (req, res) => {
             ],
             status: { $in: ['COMPLETED', 'CANCELED'] }
         })
-            .populate('pembuat_id', 'nama_lengkap no_whatsapp email')
-            .populate('pekerja_id', 'nama_lengkap no_whatsapp email')
+            .populate('pembuat_id', 'nama_lengkap email kyc_status')
+            .populate('pekerja_id', 'nama_lengkap email kyc_status')
             .sort({ created_at: -1 });
 
         res.status(200).json({ success: true, data: history });
@@ -453,7 +494,7 @@ exports.getTopWorkers = async (req, res) => {
         const workers = await User.find({ role: 'user', total_ulasan: { $gt: 0 } })
             .sort({ rating_rata_rata: -1 })
             .limit(20)
-            .select('nama_lengkap no_whatsapp rating_rata_rata total_ulasan');
+            .select('nama_lengkap rating_rata_rata total_ulasan kyc_status');
         res.status(200).json({ success: true, data: workers });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } 
 import L from 'leaflet';
 import axios from 'axios';
 import { getCurrentLocation } from '../utils/geolocationHelper';
+import { Lightbulb } from 'lucide-react';
 
 // Ikon kustom agar tidak bergantung pada aset lokal Leaflet
 const customIcon = new L.DivIcon({
@@ -206,6 +207,11 @@ export default function BuatTugas() {
             }
         } catch (error) {
             console.error('Gagal menerbitkan tugas:', error);
+            if (error.response?.data?.code === 'KYC_REQUIRED') {
+                toast.error(error.response.data.message);
+                navigate('/verifikasi-identitas');
+                return;
+            }
             if (error.response && error.response.data && error.response.data.message) {
                 toast.error('GAGAL: ' + error.response.data.message);
             } else {
@@ -396,7 +402,9 @@ export default function BuatTugas() {
                                 lineHeight: '1.5',
                                 textAlign: 'left'
                             }}>
-                                <span style={{ fontSize: '1.6rem' }}>💡</span>
+                                <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'var(--color-sandstone)', border: '2px solid var(--border-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                    <Lightbulb size={20} strokeWidth={2.4} color="var(--color-ink-black)" />
+                                </div>
                                 <div>
                                     Jarak ke lokasi tugas: <strong>{getDistance(lokasiAsli, lokasi) >= 1000 ? `${(getDistance(lokasiAsli, lokasi) / 1000).toFixed(2)} KM` : `${Math.round(getDistance(lokasiAsli, lokasi))} meter`}</strong>. <br/>
                                     Rekomendasi upah wajar: <strong>Rp {Math.max(3000, Math.round((3000 + getDistance(lokasiAsli, lokasi) * 5) / 500) * 500).toLocaleString('id-ID')}</strong> (Rp 3.000 tarif dasar + Rp 5/meter).

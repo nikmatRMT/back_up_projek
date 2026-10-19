@@ -38,7 +38,9 @@ exports.getDashboardStats = async (req, res) => {
 // Mendapatkan daftar pengguna untuk tabel
 exports.getUsers = async (req, res) => {
     try {
-        const users = await User.find().sort({ created_at: -1 });
+        const users = await User.find()
+            .select('nama_lengkap email no_whatsapp batas_talangan saldo role status created_at rating_rata_rata total_ulasan kyc_status kyc_method kyc_rejection_reason kyc_verified_at kyc_nik kyc_name kyc_address kyc_document_image')
+            .sort({ created_at: -1 });
         res.json({
             success: true,
             data: users
@@ -218,3 +220,127 @@ exports.resetUserPassword = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+// Update status KYC pengguna (Verifikasi, Tolak, atau Cabut/Reset)
+exports.updateUserKycStatus = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { status, rejection_reason } = req.body; // 'VERIFIED' | 'REJECTED' | 'UNVERIFIED'
+
+        if (!['VERIFIED', 'REJECTED', 'UNVERIFIED'].includes(status)) {
+            return res.status(400).json({ success: false, message: 'Status KYC tidak valid.' });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
+        }
+
+        user.kyc_status = status;
+        if (status === 'VERIFIED') {
+            user.kyc_verified_at = new Date();
+            user.kyc_rejection_reason = null;
+            user.kyc_method = user.kyc_method || 'ADMIN_MANUAL';
+        } else if (status === 'REJECTED') {
+            user.kyc_verified_at = null;
+            user.kyc_rejection_reason = rejection_reason || 'Verifikasi ditolak oleh Administrator.';
+        } else {
+            // UNVERIFIED (Dicabut / Dibatalkan / Reset)
+            user.kyc_verified_at = null;
+            user.kyc_rejection_reason = null;
+        }
+
+        await user.save();
+
+        res.json({
+            success: true,
+            message: `Status KYC untuk ${user.nama_lengkap} berhasil diubah menjadi ${
+                status === 'VERIFIED' ? 'Terverifikasi' : status === 'REJECTED' ? 'Ditolak' : 'Belum Verifikasi'
+            }.`,
+            data: user
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Mendapatkan daftar transaksi pembayaran untuk Monitoring Pembayaran Admin
+exports.getPayments = async (req, res) => {
+    try {
+        const { status, method, search } = req.query;
+        let query = {};
+
+        // Filter status jika ada
+        if (status && status !== 'ALL') {
+            query.payment_status = status;
+        }
+
+        // Filter method jika ada
+        if (method && method !== 'ALL') {
+            query.payment_method = method;
+        }
+
+        let quests = await Quest.find(query)
+            .populate('pembuat_id', 'nama_lengkap email no_whatsapp')
+            .populate('pekerja_id', 'nama_lengkap email no_whatsapp')
+            .sort({ payment_updated_at: -1, created_at: -1 });
+
+        // Filter search jika ada (pencarian teks pada referensi, deskripsi, nama user)
+        if (search) {
+            const q = search.toLowerCase();
+            quests = quests.filter(quest => {
+                const refMatch = (quest.payment_reference || '').toLowerCase().includes(q);
+                const descMatch = (quest.deskripsi || '').toLowerCase().includes(q);
+                const clientMatch = (quest.pembuat_id?.nama_lengkap || '').toLowerCase().includes(q) || (quest.pembuat_id?.email || '').toLowerCase().includes(q);
+                const workerMatch = (quest.pekerja_id?.nama_lengkap || '').toLowerCase().includes(q) || (quest.pekerja_id?.email || '').toLowerCase().includes(q);
+                return refMatch || descMatch || clientMatch || workerMatch;
+            });
+        }
+
+        res.json({
+            success: true,
+            data: quests
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Memproses refund dana pembayaran oleh Admin
+exports.processRefund = async (req, res) => {
+    try {
+        const { questId } = req.params;
+        const { reason } = req.body;
+
+        const quest = await Quest.findById(questId)
+            .populate('pembuat_id', 'nama_lengkap email no_whatsapp')
+            .populate('pekerja_id', 'nama_lengkap email no_whatsapp');
+
+        if (!quest) {
+            return res.status(404).json({ success: false, message: 'Transaksi tugas tidak ditemukan.' });
+        }
+
+        if (quest.payment_status !== 'PAID') {
+            return res.status(400).json({
+                success: false,
+                message: `Refund hanya dapat dilakukan untuk transaksi yang berstatus PAID (Status saat ini: ${quest.payment_status}).`
+            });
+        }
+
+        quest.payment_status = 'REFUNDED';
+        quest.payment_updated_at = new Date();
+        quest.refund_reason = reason || 'Refund diproses oleh Administrator atas kesepakatan sengketa / pembatalan.';
+        
+        await quest.save();
+
+        res.json({
+            success: true,
+            message: `Pembayaran tugas '${quest.deskripsi}' berhasil di-refund oleh Admin.`,
+            data: quest
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+

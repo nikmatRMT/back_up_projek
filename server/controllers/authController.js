@@ -70,7 +70,8 @@ exports.register = async (req, res) => {
                 email: newUser.email,
                 role: newUser.role,
                 no_whatsapp: newUser.no_whatsapp,
-                saldo: newUser.saldo
+                saldo: newUser.saldo,
+                kyc_status: newUser.kyc_status
             }
         });
     } catch (error) {
@@ -125,7 +126,8 @@ exports.login = async (req, res) => {
                 email: user.email,
                 role: user.role,
                 no_whatsapp: user.no_whatsapp,
-                saldo: user.saldo
+                saldo: user.saldo,
+                kyc_status: user.kyc_status
             }
         });
     } catch (error) {

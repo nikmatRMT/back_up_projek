@@ -30,6 +30,7 @@ lerna-debug.log*
 # Local database snapshots and maintenance output
 /server/backups/
 /server/*.backup.json
+/backups/
 
 # Editor & OS files
 .vscode/

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Logo from '../components/Logo';
 import { saveStorageItem, removeStorageItem } from '../utils/storageHelper';
+import { KeyRound } from 'lucide-react';
 
 export default function LandingLogin() {
     const navigate = useNavigate();
@@ -252,7 +253,11 @@ export default function LandingLogin() {
                         padding: '24px', position: 'relative', textAlign: 'center', border: '3px solid var(--color-ink-black)',
                         boxShadow: 'var(--shadow-card, 6px 6px 0px #000)'
                     }}>
-                        <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔑</div>
+                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '14px' }}>
+                            <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: 'var(--color-sandstone)', border: '2.5px solid var(--border-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '2px 2px 0 var(--border-ink)' }}>
+                                <KeyRound size={30} strokeWidth={2.4} color="var(--color-ink-black)" />
+                            </div>
+                        </div>
                         <h2 style={{ fontSize: '1.25rem', fontWeight: '900', marginBottom: '8px', color: 'var(--color-ink-black)', fontFamily: 'var(--font-outfit)' }}>LUPA PASSWORD?</h2>
                         <p style={{ fontSize: '13px', color: 'var(--color-stone-gray)', marginBottom: '16px', lineHeight: '1.5', fontFamily: 'var(--font-inter)' }}>
                             Masukkan email terdaftar Anda. Kami akan mengarahkan Anda ke WhatsApp Admin untuk memverifikasi dan melakukan reset sandi.

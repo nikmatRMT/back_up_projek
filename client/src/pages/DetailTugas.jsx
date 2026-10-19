@@ -8,6 +8,9 @@ import 'leaflet-routing-machine';
 import BottomNav from '../components/BottomNav';
 import { watchLocation, stopWatchLocation, getCurrentLocation } from '../utils/geolocationHelper';
 import { showNotification } from '../utils/notificationHelper';
+import { Banknote, QrCode, Receipt, Coins, History, MessageSquare, PartyPopper, Award, Handshake, MapPin, Clock, Check } from 'lucide-react';
+
+const formatRupiah = (value) => `Rp ${Number(value || 0).toLocaleString('id-ID')}`;
 
 const customIcon = new L.DivIcon({
     html: `<div style="color: var(--color-coral-pop, #ff705d);"><svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></div>`,
@@ -33,7 +36,13 @@ function RoutingMachine({ userLoc, clientLoc }) {
             lineOptions: { styles: [{ color: '#2ba0ff', weight: 5, opacity: 0.8 }] },
             createMarker: function() { return null; }
         }).addTo(map);
-        return () => { if (map && routingControl) map.removeControl(routingControl); };
+        return () => { 
+            try {
+                if (map && routingControl) map.removeControl(routingControl); 
+            } catch (err) {
+                // Abaikan error cleanup internal Leaflet Routing Machine saat unmount
+            }
+        };
     }, [map, userLoc, clientLoc]);
     return null;
 }
@@ -101,10 +110,13 @@ export default function DetailTugas() {
     const [timeLeft, setTimeLeft] = useState('');
     const [ratingInput, setRatingInput] = useState(5);
     const [ulasanInput, setUlasanInput] = useState('');
+    const [negotiations, setNegotiations] = useState([]);
+    const [recentCompletedQuest, setRecentCompletedQuest] = useState(null);
 
     const MY_USER_ID = localStorage.getItem('myUserId');
     const pembuatIdString = quest ? (typeof quest.pembuat_id === 'object' ? quest.pembuat_id?._id : quest.pembuat_id) : null;
     const isKlien = pembuatIdString === MY_USER_ID;
+    const canStartWork = quest?.negotiation_status === 'AGREED';
 
     const handleKirimRating = async () => {
         setIsSubmitting(true);
@@ -151,7 +163,7 @@ export default function DetailTugas() {
                         // Notifikasi saat status berpindah dari OPEN ke TAKEN
                         if (quest.status === 'OPEN' && fetched.status === 'TAKEN') {
                             showNotification(
-                                "Tugas Anda Diambil! 🏃",
+                                "Tugas Anda Diambil!",
                                 `${fetched.pekerja_id?.nama_lengkap || 'Pekerja'} telah mengambil tugas Anda dan sedang menuju ke lokasi.`
                             );
                             toast.success("Tugas Anda telah diambil oleh Pekerja!");
@@ -218,13 +230,92 @@ export default function DetailTugas() {
         }
     }, [quest, userLocation]);
 
+    // Pastikan quest yang dilepas atau dibatalkan tidak tertahan di state browser.
+    useEffect(() => {
+        if (!MY_USER_ID) return undefined;
+        if (quest?.status === 'COMPLETED') return undefined;
+        let cancelled = false;
+        const syncActiveQuest = async () => {
+            try {
+                const response = await axios.get(`/api/quests/my-active?user_id=${MY_USER_ID}`);
+                if (!cancelled && response.data.success) {
+                    setQuest(response.data.data);
+                    setNegotiations([]);
+                }
+            } catch (error) {
+                if (!cancelled && error.response?.status === 404) {
+                    if (quest?._id && quest.status === 'AWAITING_PAYMENT') {
+                        try {
+                            const paymentResponse = await axios.get(`/api/payments/${quest._id}`);
+                            if (!cancelled && paymentResponse.data.data?.status === 'COMPLETED') {
+                                setQuest(paymentResponse.data.data);
+                                toast.success('Pembayaran terverifikasi dan upah telah masuk ke saldo.');
+                                showNotification('Pembayaran Berhasil ✓', `Upah ${formatRupiah(paymentResponse.data.data.agreed_upah || paymentResponse.data.data.upah_jasa)} telah masuk ke saldo Anda.`);
+                                return;
+                            }
+                        } catch {
+                            // Lanjutkan ke kondisi tanpa tugas aktif bila transaksi tidak dapat ditemukan.
+                        }
+                    }
+                    setQuest(null);
+                    try {
+                        const negotiationResponse = await axios.get('/api/chat/my-negotiations');
+                        if (!cancelled) setNegotiations(negotiationResponse.data.data || []);
+                    } catch {
+                        if (!cancelled) setNegotiations([]);
+                    }
+                    try {
+                        const historyRes = await axios.get(`/api/quests/history?user_id=${MY_USER_ID}`);
+                        if (!cancelled && historyRes.data.success) {
+                            const latest = historyRes.data.data?.find(q => q.status === 'COMPLETED');
+                            if (latest) {
+                                const compTime = new Date(latest.completed_at || latest.paid_at || latest.created_at).getTime();
+                                if (Date.now() - compTime < 24 * 60 * 60 * 1000) {
+                                    setRecentCompletedQuest(latest);
+                                }
+                            }
+                        }
+                    } catch {
+                        // ignore history fetch error
+                    }
+                }
+            } finally {
+                if (!cancelled) setIsLoading(false);
+            }
+        };
+        syncActiveQuest();
+        const timer = window.setInterval(syncActiveQuest, 5000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [MY_USER_ID, quest?._id, quest?.status]);
+
     useEffect(() => {
         if (!quest) {
             const fetchMyActiveQuest = async () => {
                 try {
                     const res = await axios.get(`/api/quests/my-active?user_id=${MY_USER_ID}`);
-                    if (res.data.success) setQuest(res.data.data);
-                } catch (err) { console.log("Tidak ada tugas aktif"); }
+                    if (res.data.success) {
+                        setQuest(res.data.data);
+                    }
+                } catch (err) {
+                    console.log("Tidak ada tugas aktif");
+                    try {
+                        const historyRes = await axios.get(`/api/quests/history?user_id=${MY_USER_ID}`);
+                        if (historyRes.data.success) {
+                            const latest = historyRes.data.data?.find(q => q.status === 'COMPLETED');
+                            if (latest) {
+                                const compTime = new Date(latest.completed_at || latest.paid_at || latest.created_at).getTime();
+                                if (Date.now() - compTime < 24 * 60 * 60 * 1000) {
+                                    setRecentCompletedQuest(latest);
+                                }
+                            }
+                        }
+                    } catch {
+                        // ignore history fetch error
+                    }
+                }
                 finally { setIsLoading(false); }
             };
             fetchMyActiveQuest();
@@ -273,27 +364,18 @@ export default function DetailTugas() {
                 latitude: currentLat,
                 longitude: currentLng
             });
-            if (res.data.success) { setShowSuccessUI(true); setTimeout(() => navigate('/beranda'), 2500); }
+            if (res.data.success) {
+                if (res.data.data.status === 'AWAITING_PAYMENT') {
+                    setQuest(res.data.data);
+                    setPinInput('');
+                    setIsSubmitting(false);
+                    toast.success('PIN benar. Menunggu pembayaran dari Klien.');
+                } else {
+                    setShowSuccessUI(true);
+                    setTimeout(() => navigate('/beranda'), 2500);
+                }
+            }
         } catch (err) { toast.error(err.response?.data?.message || 'Gagal menyelesaikan tugas'); setIsSubmitting(false); }
-    };
-
-    const handleWhatsAppChat = () => {
-        const targetParty = isKlien ? quest.pekerja_id : quest.pembuat_id;
-        const targetPhone = targetParty?.no_whatsapp;
-        if (!targetPhone) {
-            toast.error("Nomor WhatsApp tidak ditemukan atau tugas belum diambil.");
-            return;
-        }
-        
-        let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
-        if (cleanPhone.startsWith('0')) {
-            cleanPhone = '62' + cleanPhone.slice(1);
-        }
-        
-        const message = `Halo, saya ${isKlien ? 'Klien' : 'Pekerja'} dari aplikasi Jasa Warga terkait tugas "${quest.deskripsi}".`;
-        const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-        
-        window.open(url, '_blank');
     };
 
     const toggleMapSize = (e) => {
@@ -310,12 +392,135 @@ export default function DetailTugas() {
     }
 
     if (!quest) {
+        const isWorkerForRecent = recentCompletedQuest ? (
+            String(typeof recentCompletedQuest.pekerja_id === 'object' ? recentCompletedQuest.pekerja_id?._id : recentCompletedQuest.pekerja_id) === String(MY_USER_ID)
+        ) : false;
+        const totalRecentAmount = recentCompletedQuest ? (
+            (recentCompletedQuest.agreed_upah || recentCompletedQuest.upah_jasa || 0) + (recentCompletedQuest.nominal_talangan || 0)
+        ) : 0;
+
         return (
             <>
                 <div className="fade-up" style={{ backgroundColor: 'var(--bg-main)', minHeight: '100vh', paddingBottom: '100px' }}>
                 <header style={{ padding: '20px', backgroundColor: 'var(--surface)', borderBottom: '2px solid var(--border-ink)' }}>
-                    <h2>Tugas Aktif</h2>
+                    <h2>Tugas & Penawaran</h2>
                 </header>
+
+                {/* KARTU INFORMASI TUGAS TERAKHIR YANG SELESAI & LUNAS */}
+                {recentCompletedQuest && (
+                    <div style={{ padding: '20px 20px 0' }}>
+                        <div className="clean-card" style={{
+                            padding: '20px 18px',
+                            backgroundColor: '#f0fdf4',
+                            border: '3px solid var(--accent-green)',
+                            borderRadius: '16px',
+                            boxShadow: '4px 4px 0 var(--border-ink)'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                <span style={{
+                                    backgroundColor: 'var(--accent-green)',
+                                    color: 'var(--color-ink-black)',
+                                    padding: '4px 12px',
+                                    borderRadius: '50px',
+                                    fontSize: '11px',
+                                    fontWeight: '800',
+                                    border: '1.5px solid var(--border-ink)'
+                                }}>
+                                    ✓ TUGAS TERAKHIR SELESAI & LUNAS
+                                </span>
+                                <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                                    {new Date(recentCompletedQuest.completed_at || recentCompletedQuest.paid_at || Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                                </span>
+                            </div>
+
+                            <h3 style={{ fontSize: '1.05rem', fontWeight: '800', marginBottom: '8px', lineHeight: '1.3', color: 'var(--color-ink-black)' }}>
+                                {recentCompletedQuest.deskripsi}
+                            </h3>
+
+                            <div style={{
+                                backgroundColor: '#ffffff',
+                                border: '1.5px solid var(--border-ink)',
+                                borderRadius: '10px',
+                                padding: '12px 14px',
+                                marginBottom: '14px',
+                                fontSize: '12px'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>{isWorkerForRecent ? 'Klien (Pembuat Tugas)' : 'Pekerja'}</span>
+                                    <strong>{isWorkerForRecent ? (recentCompletedQuest.pembuat_id?.nama_lengkap || 'Klien') : (recentCompletedQuest.pekerja_id?.nama_lengkap || 'Pekerja')}</strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>Metode Pembayaran</span>
+                                    <strong style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        {recentCompletedQuest.payment_method === 'COD' ? (
+                                            <><Banknote size={15} strokeWidth={2.2} /> Tunai (COD P2P)</>
+                                        ) : recentCompletedQuest.payment_method === 'QRIS' ? (
+                                            <><QrCode size={15} strokeWidth={2.2} /> QRIS Dinamis P2P</>
+                                        ) : (
+                                            recentCompletedQuest.payment_method || 'P2P'
+                                        )}
+                                    </strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>No. Referensi</span>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: '700' }}>{recentCompletedQuest.payment_reference || '-'}</span>
+                                </div>
+                                <div style={{ borderTop: '1px dashed var(--border-ink)', margin: '8px 0' }} />
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontWeight: '800' }}>{isWorkerForRecent ? 'Total Diterima (Masuk Saldo)' : 'Total Telah Dibayar'}</span>
+                                    <strong style={{ fontSize: '1.15rem', color: 'var(--color-ink-black)' }}>
+                                        {formatRupiah(totalRecentAmount)}
+                                    </strong>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <button
+                                    onClick={() => navigate('/pembayaran', { state: { questId: recentCompletedQuest._id } })}
+                                    className="btn btn-primary"
+                                    style={{ width: '100%', margin: 0, backgroundColor: 'var(--accent-green)', color: 'var(--color-ink-black)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                >
+                                    <Receipt size={17} strokeWidth={2.2} /> BUKA STRUK DIGITAL RESMI
+                                </button>
+                                {isWorkerForRecent ? (
+                                    <button
+                                        onClick={() => navigate('/profil')}
+                                        className="btn btn-outline"
+                                        style={{ width: '100%', margin: 0, backgroundColor: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                    >
+                                        <Coins size={17} strokeWidth={2.2} /> LIHAT TOTAL SALDO DI PROFIL
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => navigate('/riwayat')}
+                                        className="btn btn-outline"
+                                        style={{ width: '100%', margin: 0, backgroundColor: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                    >
+                                        <History size={17} strokeWidth={2.2} /> BUKA RIWAYAT TRANSAKSI
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {negotiations.length > 0 ? (
+                    <div style={{ padding: '24px' }}>
+                        <p style={{ fontSize: '12px', fontWeight: '800', color: 'var(--text-muted)', marginBottom: '12px' }}>PENAWARAN SAYA · MENUNGGU KEPUTUSAN KLIEN</p>
+                        {negotiations.map((item) => (
+                            <article key={item._id} className="clean-card" style={{ padding: '18px', marginBottom: '14px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '9px' }}>
+                                    <strong style={{ fontSize: '14px' }}>{item.quest_id?.deskripsi || 'Quest'}</strong>
+                                    <span className="badge badge-dark">{item.status}</span>
+                                </div>
+                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>Klien: {item.client_id?.nama_lengkap || 'Pengguna'} · Upah awal Rp {Number(item.quest_id?.upah_jasa || 0).toLocaleString('id-ID')}</p>
+                                <button className="btn btn-green" style={{ width: '100%', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} onClick={() => navigate('/chat', { state: { questId: item.quest_id?._id, conversationId: item._id } })}>
+                                    <MessageSquare size={16} strokeWidth={2.2} /> LANJUTKAN CHAT NEGOSIASI
+                                </button>
+                            </article>
+                        ))}
+                    </div>
+                ) : !recentCompletedQuest ? (
                 <div style={{ padding: '48px 24px', textAlign: 'center' }}>
                     <div style={{ width: '64px', height: '64px', backgroundColor: 'var(--color-sandstone)', borderRadius: '50px', border: '2px solid var(--border-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-black)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -329,6 +534,7 @@ export default function DetailTugas() {
                     <h3 style={{ marginBottom: '8px' }}>Belum Ada Tugas Aktif</h3>
                     <p style={{ fontSize: '14px' }}>Anda tidak sedang membuat atau mengerjakan tugas apapun saat ini.</p>
                 </div>
+                ) : null}
                 </div>
                 <BottomNav activePage="tugas" />
             </>
@@ -359,7 +565,20 @@ export default function DetailTugas() {
             {/* Success Overlay */}
             {showSuccessUI && (
                 <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'var(--accent-green)', zIndex: 99999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-main)' }}>
-                    <div style={{ fontSize: '4rem', marginBottom: '16px', animation: 'bounce 1s infinite' }}>🎉</div>
+                    <div style={{
+                        width: '72px',
+                        height: '72px',
+                        backgroundColor: '#ffffff',
+                        border: '3px solid var(--border-ink)',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: '16px',
+                        boxShadow: '4px 4px 0 var(--border-ink)'
+                    }}>
+                        <PartyPopper size={38} strokeWidth={2.2} />
+                    </div>
                     <h1 style={{ fontSize: '2rem', marginBottom: '8px', textAlign: 'center' }}>TUGAS SELESAI!</h1>
                     <p style={{ fontSize: '1rem', color: 'var(--text-main)', opacity: 0.8 }}>Saldo Anda berhasil ditambahkan.</p>
                 </div>
@@ -492,7 +711,9 @@ export default function DetailTugas() {
                             </div>
                         ) : (
                             <div className="clean-card" style={{ padding: '20px 21px', border: '2px solid var(--border-ink)', marginBottom: '20px', backgroundColor: 'var(--surface)' }}>
-                                <p style={{ color: 'var(--accent-coral)', fontWeight: '800', marginBottom: '12px', fontSize: '13.5px', textAlign: 'center', textTransform: 'uppercase' }}>Beri Rating Pekerja 🌟</p>
+                                <p style={{ color: 'var(--accent-coral)', fontWeight: '800', marginBottom: '12px', fontSize: '13.5px', textAlign: 'center', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                    <span>Beri Rating Pekerja</span> <Award size={18} strokeWidth={2.2} />
+                                </p>
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', fontSize: '2rem', cursor: 'pointer', marginBottom: '14px' }}>
                                     {[1, 2, 3, 4, 5].map((star) => (
                                         <span 
@@ -517,6 +738,30 @@ export default function DetailTugas() {
                                 </button>
                             </div>
                         )
+                    ) : quest.status === 'AWAITING_PAYMENT' ? (
+                        <div className="clean-card" style={{ padding: '20px 21px', border: '3px solid var(--border-ink)', backgroundColor: '#fff8e6', textAlign: 'center', marginBottom: '20px', boxShadow: '4px 4px 0 var(--border-ink)' }}>
+                            <div style={{
+                                width: '60px',
+                                height: '60px',
+                                backgroundColor: '#ffffff',
+                                border: '2px solid var(--border-ink)',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                margin: '0 auto 10px',
+                                boxShadow: '2px 2px 0 var(--border-ink)'
+                            }}>
+                                <Handshake size={32} strokeWidth={2.2} />
+                            </div>
+                            <p style={{ color: 'var(--border-ink)', fontWeight: '900', marginBottom: '6px', fontSize: '15px' }}>PEKERJAAN TELAH DILAPORKAN SELESAI</p>
+                            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.4' }}>
+                                Pekerja telah memasukkan PIN di hadapan Anda. Silakan periksa hasil kerja fisik dan selesaikan pembayaran P2P (Tunai COD atau QRIS).
+                            </p>
+                            <button onClick={() => navigate('/pembayaran', { state: { questId: quest._id } })} className="btn btn-primary" style={{ width: '100%', margin: 0, backgroundColor: 'var(--accent-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                <Banknote size={18} strokeWidth={2.2} /> PERIKSA HASIL & BAYAR P2P (COD / QRIS)
+                            </button>
+                        </div>
                     ) : (
                         <div className="clean-card" style={{ padding: '20px 21px', border: '2px dashed var(--accent-green)', textAlign: 'center', marginBottom: '20px' }}>
                             <p style={{ color: 'var(--accent-green)', fontWeight: '700', marginBottom: '8px', fontSize: '13px' }}>PIN RAHASIA TUGAS INI:</p>
@@ -527,14 +772,39 @@ export default function DetailTugas() {
                 ) : (
                     quest.status === 'COMPLETED' ? (
                         <div className="clean-card" style={{ padding: '20px 21px', border: '2px solid var(--accent-green)', backgroundColor: '#f0fdf4', textAlign: 'center', marginBottom: '20px' }}>
-                            <p style={{ color: 'var(--accent-green)', fontWeight: '800', marginBottom: '8px', fontSize: '14px' }}>🎉 TUGAS SELESAI!</p>
-                            <p style={{ fontSize: '13px', color: 'var(--text-main)' }}>Terima kasih telah membantu warga. Upah Anda sudah berhasil ditambahkan ke saldo dompet.</p>
+                            <p style={{ color: 'var(--accent-green)', fontWeight: '800', marginBottom: '8px', fontSize: '14px' }}>✓ PEMBAYARAN P2P TERVERIFIKASI</p>
+                            <p style={{ fontSize: '13px', color: 'var(--text-main)', lineHeight: '1.5' }}>Quest selesai. Total upah dan talangan <strong>{formatRupiah((quest.agreed_upah || quest.upah_jasa) + (quest.nominal_talangan || 0))}</strong> telah masuk ke catatan Total Pendapatan Anda.</p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '14px', marginBottom: '14px', padding: '12px', background: 'var(--surface)', borderRadius: '12px', textAlign: 'left', fontSize: '11px', border: '1px solid var(--border-ink)' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Referensi</span><strong style={{ textAlign: 'right' }}>{quest.payment_reference || '-'}</strong>
+                                <span style={{ color: 'var(--text-muted)' }}>Metode</span><strong style={{ textAlign: 'right', display: 'inline-flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>{quest.payment_method === 'COD' ? <><Banknote size={14} strokeWidth={2.2} /> Tunai (COD P2P)</> : quest.payment_method === 'QRIS' ? <><QrCode size={14} strokeWidth={2.2} /> QRIS Dinamis</> : quest.payment_method || '-'}</strong>
+                                <span style={{ color: 'var(--text-muted)' }}>Status</span><strong style={{ textAlign: 'right', color: 'var(--accent-green)' }}>PAID (LUNAS)</strong>
+                            </div>
+                            <button onClick={() => navigate('/pembayaran', { state: { questId: quest._id } })} className="btn btn-outline" style={{ width: '100%', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                <Receipt size={17} strokeWidth={2.2} /> BUKA STRUK DIGITAL RESMI
+                            </button>
                         </div>
                     ) : (
                         <div className="clean-card" style={{ padding: '20px 21px', marginBottom: '20px' }}>
                             {quest.status === 'TAKEN' ? (
                                 <div style={{ textAlign: 'center' }}>
-                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '14px' }}>Konfirmasi jika Anda sudah sampai di lokasi tujuan agar Klien tahu dan timer pembatalan otomatis dihentikan.</p>
+                                    {!canStartWork && (
+                                        <div style={{ width: '100%', backgroundColor: '#fff8c9', border: '2px dashed var(--border-ink)', padding: '13px', borderRadius: 'var(--radius-small)', marginBottom: '14px', color: 'var(--text-main)' }}>
+                                            <strong style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                                                SELESAIKAN NEGOSIASI
+                                            </strong>
+                                            <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                                                Ajukan dan sepakati upah melalui chat sebelum berangkat.
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate('/chat', { state: { questId: quest._id } })}
+                                                style={{ width: '100%', minHeight: '46px', marginTop: '12px', padding: '10px 14px', border: '2px solid var(--border-ink)', borderRadius: '999px', backgroundColor: 'var(--accent-green)', color: 'var(--text-main)', fontFamily: 'inherit', fontSize: '12px', fontWeight: '900', cursor: 'pointer', boxShadow: '2px 2px 0 var(--border-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                            >
+                                                <MessageSquare size={16} strokeWidth={2.2} /> BUKA CHAT & AJUKAN PENAWARAN
+                                            </button>
+                                        </div>
+                                    )}
+                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '14px' }}>Setelah kesepakatan berhasil, konfirmasi saat Anda tiba di lokasi.</p>
                                     
                                     {liveDistance !== null && liveDistance > 50 ? (
                                         <div style={{ backgroundColor: '#fef2f0', border: '2px dashed var(--accent-coral)', padding: '16px', borderRadius: 'var(--radius-small)', textAlign: 'center', marginBottom: '14px' }}>
@@ -546,10 +816,34 @@ export default function DetailTugas() {
                                             </p>
                                         </div>
                                     ) : (
-                                        <button onClick={handleMulaiKerja} disabled={isSubmitting || liveDistance === null} className="btn btn-primary" style={{ width: '100%', marginBottom: '0' }}>
-                                            {isSubmitting ? 'Memproses...' : (liveDistance === null ? 'Mendeteksi GPS...' : '📍 SAYA SUDAH SAMPAI')}
+                                        <button onClick={handleMulaiKerja} disabled={!canStartWork || isSubmitting || liveDistance === null} className="btn btn-primary" style={{ width: '100%', marginBottom: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                            {!canStartWork ? 'SELESAIKAN NEGOSIASI' : isSubmitting ? 'Memproses...' : (liveDistance === null ? 'Mendeteksi GPS...' : <><MapPin size={18} strokeWidth={2.2} /> SAYA SUDAH SAMPAI</>)}
                                         </button>
                                     )}
+                                </div>
+                            ) : quest.status === 'AWAITING_PAYMENT' ? (
+                                <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                                    <div style={{
+                                        width: '60px',
+                                        height: '60px',
+                                        backgroundColor: '#ffffff',
+                                        border: '2px solid var(--border-ink)',
+                                        borderRadius: '50%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        margin: '0 auto 10px',
+                                        boxShadow: '2px 2px 0 var(--border-ink)'
+                                    }}>
+                                        <Clock size={30} strokeWidth={2.2} />
+                                    </div>
+                                    <p style={{ color: 'var(--accent-green)', fontWeight: '900', marginBottom: '6px', fontSize: '15px' }}>PIN BERHASIL DIVERIFIKASI ✓</p>
+                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.4' }}>
+                                        Pekerjaan telah diserahkan. Menunggu Klien memeriksa hasil dan menyelesaikan pembayaran P2P (Tunai COD / QRIS).
+                                    </p>
+                                    <button onClick={() => navigate('/pembayaran', { state: { questId: quest._id } })} className="btn btn-primary" style={{ width: '100%', margin: 0, backgroundColor: 'var(--accent-green)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                        <Handshake size={18} strokeWidth={2.2} /> LIHAT STATUS / STRUK PEMBAYARAN P2P
+                                    </button>
                                 </div>
                             ) : (
                                 <>
@@ -585,11 +879,24 @@ export default function DetailTugas() {
                     )
                 )}
 
-                {/* Chat WA */}
-                <button onClick={handleWhatsAppChat} className="btn btn-outline" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                {/* Daftar penawaran sebelum Pekerja dipilih */}
+                {isKlien && quest.status === 'OPEN' && (
+                    <button onClick={() => navigate('/chat', { state: { questId: quest._id } })} className="btn" style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: 'var(--accent-yellow)', border: '2px solid var(--border-ink)', boxShadow: '2px 2px 0 var(--border-ink)' }}>
+                        <MessageSquare size={17} strokeWidth={2.2} /> LIHAT PENAWARAN & NEGOSIASI
+                    </button>
+                )}
+
+                {/* Chat pribadi setelah quest diberikan kepada Pekerja */}
+                {quest.pekerja_id && (isKlien || quest.status !== 'TAKEN' || canStartWork) && <button onClick={() => navigate('/chat', { state: { questId: quest._id } })} className="btn btn-outline" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>
-                    CHAT WHATSAPP {isKlien ? 'PEKERJA' : 'KLIEN'}
-                </button>
+                    CHAT DI APLIKASI DENGAN {isKlien ? 'PEKERJA' : 'KLIEN'}
+                </button>}
+
+                {quest.pekerja_id && ['AWAITING_PAYMENT', 'COMPLETED'].includes(quest.status) && (
+                    <button onClick={() => navigate('/pembayaran', { state: { questId: quest._id } })} className="btn" style={{ marginBottom: '16px', background: quest.payment_status === 'PAID' ? 'var(--accent-green)' : 'var(--accent-yellow)', border: '2px solid var(--border-ink)', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        {quest.payment_status === 'PAID' ? <><Check size={18} strokeWidth={2.5} /> LIHAT STRUK PEMBAYARAN P2P</> : isKlien ? <><Banknote size={18} strokeWidth={2.2} /> PERIKSA & BAYAR P2P (COD / QRIS)</> : `STATUS BAYAR: ${quest.payment_status || 'UNPAID'}`}
+                    </button>
+                )}
 
                 {/* Cancel (Klien only) */}
                 {isKlien && (

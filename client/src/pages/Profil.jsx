@@ -5,6 +5,7 @@ import axios from 'axios';
 import BottomNav from '../components/BottomNav';
 import { stopNativePollingService } from '../utils/notificationHelper';
 import { removeStorageItem } from '../utils/storageHelper';
+import { LayoutDashboard, Award, LogOut } from 'lucide-react';
 
 export default function Profil() {
     const navigate = useNavigate();
@@ -28,7 +29,7 @@ export default function Profil() {
             if (res.data.success) {
                 setTopWorkers(res.data.data);
             }
-        } catch (e) {
+        } catch {
             toast.error("Gagal memuat daftar pekerja terbaik.");
         } finally {
             setLoadingWorkers(false);
@@ -50,8 +51,7 @@ export default function Profil() {
             .finally(() => setIsLoading(false));
     }, [MY_USER_ID, isGuest]);
 
-    const handleUpdateProfile = (e) => {
-        e.preventDefault();
+    const handleUpdateProfile = () => {
         if (!editName.trim() || !editWA.trim()) {
             return toast.error("Nama dan Nomor WhatsApp tidak boleh kosong!");
         }
@@ -158,7 +158,9 @@ export default function Profil() {
                                     <p style={{ fontSize: '14px', marginBottom: '8px' }}>{profile.email}</p>
                                 </>
                             )}
-                            <span className="badge badge-green">Akun Terverifikasi</span>
+                            <span className={`badge ${profile.kyc_status === 'VERIFIED' ? 'badge-green' : ''}`} style={profile.kyc_status !== 'VERIFIED' ? { background: 'var(--accent-yellow)', border: '1.5px solid var(--border-ink)' } : undefined}>
+                                {profile.kyc_status === 'VERIFIED' ? 'Identitas Terverifikasi' : 'Identitas Belum Diverifikasi'}
+                            </span>
 
                             {/* Income Card */}
                             <div style={{ 
@@ -187,7 +189,7 @@ export default function Profil() {
                     <div className="clean-card" style={{ padding: '18px 21px', marginBottom: '16px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                             <span className="section-label">PENGATURAN AKUN</span>
-                            <button onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}
+                            <button onClick={() => isEditing ? handleUpdateProfile() : setIsEditing(true)}
                                 style={{ background: 'none', border: 'none', color: 'var(--accent-green)', fontWeight: '700', fontSize: '13px', cursor: 'pointer', fontFamily: 'var(--font-inter)' }}>
                                 {isEditing ? 'SIMPAN' : 'EDIT'}
                             </button>
@@ -200,6 +202,9 @@ export default function Profil() {
                             <span style={{ fontSize: '14px', color: 'var(--text-main)' }}>Batas Talangan</span>
                             <span style={{ fontSize: '14px', fontWeight: '700' }}>Rp {profile.batas_talangan.toLocaleString('id-ID')}</span>
                         </div>
+                        <button onClick={() => navigate('/verifikasi-identitas')} className="btn" style={{ marginTop: '10px', marginBottom: 0, background: profile.kyc_status === 'VERIFIED' ? 'var(--accent-green)' : 'var(--accent-yellow)', border: '2px solid var(--border-ink)' }}>
+                            {profile.kyc_status === 'VERIFIED' ? '✓ LIHAT STATUS VERIFIKASI' : 'VERIFIKASI IDENTITAS (KTP)'}
+                        </button>
                     </div>
                 )}
 
@@ -208,7 +213,10 @@ export default function Profil() {
                     <div onClick={() => navigate('/admin')} className="clean-card"
                         style={{ padding: '16px 21px', marginBottom: '16px', background: 'var(--color-sandstone)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                         <div>
-                            <h3 style={{ fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '2px' }}>🖥️ Panel Admin</h3>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: 'var(--accent-green)', marginBottom: '2px' }}>
+                                <LayoutDashboard size={18} strokeWidth={2.4} />
+                                Panel Admin
+                            </h3>
                             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Kelola pengguna, pantau tugas, cetak laporan.</p>
                         </div>
                         <span style={{ color: 'var(--text-main)', fontSize: '1.2rem', fontWeight: 'bold' }}>→</span>
@@ -288,7 +296,10 @@ export default function Profil() {
                                 fontWeight: 'bold', cursor: 'pointer', color: 'var(--text-main)'
                             }}>✕</button>
 
-                            <h2 style={{ fontSize: '1.15rem', fontWeight: '800', marginBottom: '16px', color: 'var(--text-main)', textTransform: 'uppercase' }}>🌟 Rekomendasi Pekerja Terbaik</h2>
+                            <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.15rem', fontWeight: '800', marginBottom: '16px', color: 'var(--text-main)', textTransform: 'uppercase' }}>
+                                <Award size={22} strokeWidth={2.4} color="#ffb000" />
+                                Rekomendasi Pekerja Terbaik
+                            </h2>
 
                             {loadingWorkers ? (
                                 <p style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)' }}>Memuat...</p>
@@ -297,12 +308,6 @@ export default function Profil() {
                             ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                                     {topWorkers.map((worker) => {
-                                        let cleanPhone = worker.no_whatsapp ? worker.no_whatsapp.replace(/\D/g, '') : '';
-                                        if (cleanPhone.startsWith('0')) {
-                                            cleanPhone = '62' + cleanPhone.substring(1);
-                                        }
-                                        const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(`Halo ${worker.nama_lengkap}, saya tertarik menggunakan jasa Anda lewat aplikasi Jasa Warga. Apakah Anda bersedia membantu saya menyelesaikan tugas...?`)}`;
-
                                         return (
                                             <div key={worker._id} style={{
                                                 border: '2px solid var(--border-ink)',
@@ -320,12 +325,9 @@ export default function Profil() {
                                                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>({worker.total_ulasan} Ulasan)</span>
                                                     </div>
                                                 </div>
-                                                <a href={waUrl} target="_blank" rel="noreferrer" className="btn btn-green" style={{
-                                                    fontSize: '11px', padding: '6px 12px', margin: 0, display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none'
-                                                }}>
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>
-                                                    CHAT WA
-                                                </a>
+                                                <span className="badge badge-green" style={{ fontSize: '9px' }}>
+                                                    {worker.kyc_status === 'VERIFIED' ? '✓ TERVERIFIKASI' : 'NOMOR DILINDUNGI'}
+                                                </span>
                                             </div>
                                         );
                                     })}
@@ -346,7 +348,11 @@ export default function Profil() {
                             backgroundColor: 'var(--surface)', width: '100%', maxWidth: '340px',
                             padding: '24px', position: 'relative', textAlign: 'center'
                         }}>
-                            <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🚪</div>
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '14px' }}>
+                                <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#fee2e2', border: '2.5px solid var(--border-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '2px 2px 0 var(--border-ink)' }}>
+                                    <LogOut size={28} strokeWidth={2.4} color="var(--accent-coral)" />
+                                </div>
+                            </div>
                             <h2 style={{ fontSize: '1.2rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-main)', letterSpacing: '-0.5px' }}>LOGOUT</h2>
                             <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>
                                 Apakah Anda yakin ingin keluar dari akun Jasa Warga Anda?

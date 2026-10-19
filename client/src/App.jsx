@@ -6,6 +6,7 @@ import { App as CapApp } from '@capacitor/app';
 import axios from 'axios';
 import { syncStorageToLocalStorage } from './utils/storageHelper';
 import { initErrorReporter } from './utils/errorReporter';
+import { Smartphone, ShieldCheck } from 'lucide-react';
 import LandingLogin from './pages/LandingLogin';
 
 // Inisialisasi pelaporan error remote secara langsung
@@ -18,8 +19,12 @@ import AdminDashboard from './pages/AdminDashboard';
 import Profil from './pages/Profil';
 import Register from './pages/Register';
 import Riwayat from './pages/Riwayat';
+import ChatNegotiation from './pages/ChatNegotiation';
+import KycVerification from './pages/KycVerification';
+import PaymentQuest from './pages/PaymentQuest';
 import 'leaflet/dist/leaflet.css';
 import './index.css';
+import './revisionFeatures.css';
 
 // Atur base URL API untuk web/dev dan Android native
 const isNativePlatform = Capacitor.isNativePlatform();
@@ -70,7 +75,11 @@ function MobileOnlyWrapper({ children }) {
           maxWidth: '500px',
           textAlign: 'center'
         }}>
-          <div style={{ fontSize: '4rem', marginBottom: '20px' }}>📱</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+            <div style={{ width: '80px', height: '80px', borderRadius: '24px', backgroundColor: 'var(--color-sandstone, #f7f4ed)', border: '3px solid var(--border-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '3px 3px 0 var(--border-ink)' }}>
+              <Smartphone size={44} strokeWidth={2.2} color="var(--color-ink-black)" />
+            </div>
+          </div>
           <h1 style={{ fontSize: '1.8rem', fontWeight: '800', marginBottom: '16px', letterSpacing: '-0.5px' }}>AKSES WEBSITE DIBATASI</h1>
           <p style={{ fontSize: '1rem', lineHeight: '1.6', color: 'var(--text-muted, #64748b)', marginBottom: '24px' }}>
             Sesuai ketentuan keamanan sistem Jasa Warga, halaman Klien dan Pekerja **hanya dapat diakses melalui Aplikasi Mobile Android/iOS**.<br /><br />
@@ -215,6 +224,9 @@ function AppRoutes() {
         <Route path="/admin" element={<RequireAdminRoute><AdminDashboard /></RequireAdminRoute>} />
         <Route path="/riwayat" element={<RequireUserRoute><MobileOnlyWrapper><Riwayat /></MobileOnlyWrapper></RequireUserRoute>} />
         <Route path="/profil" element={<RequireUserRoute><MobileOnlyWrapper><Profil /></MobileOnlyWrapper></RequireUserRoute>} />
+        <Route path="/chat" element={<RequireUserRoute><MobileOnlyWrapper><ChatNegotiation /></MobileOnlyWrapper></RequireUserRoute>} />
+        <Route path="/verifikasi-identitas" element={<RequireUserRoute><MobileOnlyWrapper><KycVerification /></MobileOnlyWrapper></RequireUserRoute>} />
+        <Route path="/pembayaran" element={<RequireUserRoute><MobileOnlyWrapper><PaymentQuest /></MobileOnlyWrapper></RequireUserRoute>} />
         <Route path="*" element={<Navigate to={getDefaultRoute()} replace />} />
       </Routes>
     </>
@@ -247,7 +259,11 @@ function App() {
         fontFamily: 'var(--font-outfit, sans-serif)'
       }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '3rem', animation: 'bounce 1s infinite', marginBottom: '16px' }}>🏃</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50px', backgroundColor: 'var(--accent-green, #10b981)', border: '2.5px solid var(--border-ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '3px 3px 0 var(--border-ink)' }}>
+              <ShieldCheck size={36} strokeWidth={2.4} color="var(--color-ink-black)" />
+            </div>
+          </div>
           <div style={{ fontWeight: '700', color: 'var(--color-ink-black)' }}>Memuat Sesi Aman...</div>
         </div>
       </div>

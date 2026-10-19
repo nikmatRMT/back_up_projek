@@ -48,6 +48,39 @@ const userSchema = new mongoose.Schema({
     total_ulasan: {
         type: Number,
         default: 0
+    },
+    kyc_status: {
+        type: String,
+        enum: ['UNVERIFIED', 'VERIFIED', 'REJECTED'],
+        default: 'UNVERIFIED'
+    },
+    kyc_method: {
+        type: String,
+        default: null
+    },
+    kyc_rejection_reason: {
+        type: String,
+        default: null
+    },
+    kyc_verified_at: {
+        type: Date,
+        default: null
+    },
+    kyc_nik: {
+        type: String,
+        default: null
+    },
+    kyc_name: {
+        type: String,
+        default: null
+    },
+    kyc_address: {
+        type: String,
+        default: null
+    },
+    kyc_document_image: {
+        type: String,
+        default: null
     }
 });
 

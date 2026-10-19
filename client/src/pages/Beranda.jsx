@@ -2,15 +2,17 @@ import toast from 'react-hot-toast';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import BottomNav from '../components/BottomNav';
 import Logo from '../components/Logo';
+import { AlertTriangle, MapPin, Zap, BatteryCharging, Loader2, Footprints, Bike } from 'lucide-react';
 
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { Motion } from '@capacitor/motion';
 import { getCurrentLocation } from '../utils/geolocationHelper';
+import { estimateRouteSeconds, formatRouteDistance, formatRouteDuration, getOsrmRoute } from '../utils/osrmHelper';
 import { requestNotificationPermission, showNotification, startNativePollingService, updateNativeServiceLocation, checkBatteryOptimizations, requestIgnoreBatteryOptimizations } from '../utils/notificationHelper';
 
 const customIcon = new L.DivIcon({
@@ -50,18 +52,38 @@ const customIcon = new L.DivIcon({
     iconAnchor: [19, 46]
 });
 
-function MapResizeHandler({ center }) {
+const workerLocationIcon = new L.DivIcon({
+    html: `<div style="position:relative;width:38px;height:46px;display:flex;flex-direction:column;align-items:center;">
+        <div style="background:#2ba0ff;color:white;border-radius:50%;border:2.5px solid #000;width:36px;height:36px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(0,0,0,.3);z-index:2;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>
+        </div>
+        <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:10px solid #000;margin-top:-3px;z-index:1;"></div>
+    </div>`,
+    className: 'worker-location-marker',
+    iconSize: [38, 46],
+    iconAnchor: [19, 46]
+});
+
+function MapResizeHandler({ center, routePositions }) {
     const map = useMap();
     useEffect(() => {
         if (!center) return;
         map.invalidateSize();
-        map.setView(center, 16);
+        if (routePositions?.length > 1) {
+            map.fitBounds(routePositions, { padding: [28, 28], maxZoom: 16 });
+        } else {
+            map.setView(center, 16);
+        }
         const timer = setTimeout(() => {
             map.invalidateSize();
-            map.setView(center, 16);
+            if (routePositions?.length > 1) {
+                map.fitBounds(routePositions, { padding: [28, 28], maxZoom: 16 });
+            } else {
+                map.setView(center, 16);
+            }
         }, 100);
         return () => clearTimeout(timer);
-    }, [map, center]);
+    }, [map, center, routePositions]);
     return null;
 }
 
@@ -93,6 +115,8 @@ export default function Beranda() {
     const [showFilter, setShowFilter] = useState(false);
     const prevQuestsRef = useRef(null);
     const [lastLoc, setLastLoc] = useState(null);
+    const [selectedRoute, setSelectedRoute] = useState(null);
+    const [routeLoading, setRouteLoading] = useState(false);
 
     // Swipe-down to dismiss modal (Bottom Sheet gesture)
     const [translateY, setTranslateY] = useState(0);
@@ -104,8 +128,36 @@ export default function Beranda() {
         if (!selectedQuest) {
             setTranslateY(0);
             setIsDragging(false);
+            setSelectedRoute(null);
+            return;
         }
-    }, [selectedQuest]);
+
+        // Otomatis hitung rute OSRM saat quest dipilih jika lokasi GPS tersedia
+        let isCancelled = false;
+        if (selectedQuest?.lokasi?.coordinates && lastLoc) {
+            setRouteLoading(true);
+            getOsrmRoute(lastLoc, {
+                lng: selectedQuest.lokasi.coordinates[0],
+                lat: selectedQuest.lokasi.coordinates[1]
+            })
+            .then(route => {
+                if (!isCancelled) setSelectedRoute(route);
+            })
+            .catch(error => {
+                if (!isCancelled) {
+                    console.warn('Auto OSRM calculation failed:', error);
+                    setSelectedRoute(null);
+                }
+            })
+            .finally(() => {
+                if (!isCancelled) setRouteLoading(false);
+            });
+        }
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [selectedQuest, lastLoc]);
 
     const handleTouchStart = (e) => {
         if (e.target.closest('.leaflet-container') || e.target.closest('button')) {
@@ -196,7 +248,7 @@ export default function Beranda() {
                         const makerId = typeof q.pembuat_id === 'object' ? q.pembuat_id?._id : q.pembuat_id;
                         if (!oldIds.has(q._id) && q.status === 'OPEN' && makerId !== MY_USER_ID) {
                             showNotification(
-                                "Ada Tugas Baru di Sekitar! 📍",
+                                "Ada Tugas Baru di Sekitar Anda!",
                                 `${q.deskripsi.substring(0, 50)}... (Upah: Rp ${q.upah_jasa.toLocaleString('id-ID')})`
                             );
                         }
@@ -438,21 +490,38 @@ export default function Beranda() {
         }
     };
 
-    const handleTakeQuest = async (questId) => {
+    const handleOpenNegotiation = async (questId) => {
         try {
-            const res = await axios.put(`/api/quests/${questId}/take`, {
-                pekerja_id: MY_USER_ID,
+            const res = await axios.post(`/api/chat/quests/${questId}/conversations`, {
                 jarak_meter: selectedQuest?.jarak_meter || 0,
                 transport_mode: transportMode
             });
             if (res.data.success) {
-                toast.success('Berhasil! Segera laksanakan tugas ini.');
-                navigate('/detail-tugas');
+                toast.success('Ruang negosiasi pribadi dibuka.');
+                navigate('/chat', { state: { questId, conversationId: res.data.data._id } });
             }
         } catch (err) {
-            toast.error(err.response?.data?.message || 'Gagal mengambil tugas. Mungkin sudah diambil orang lain.');
-            setQuests(quests.filter(q => q._id !== questId));
-            setSelectedQuest(null);
+            toast.error(err.response?.data?.message || 'Gagal membuka ruang penawaran.');
+            if (err.response?.data?.code === 'KYC_REQUIRED') {
+                navigate('/verifikasi-identitas');
+            }
+        }
+    };
+
+    const handleCalculateSelectedRoute = async () => {
+        if (!selectedQuest?.lokasi?.coordinates || !lastLoc) {
+            toast.error('Lokasi GPS belum tersedia.');
+            return;
+        }
+        setRouteLoading(true);
+        try {
+            const route = await getOsrmRoute(lastLoc, { lng: selectedQuest.lokasi.coordinates[0], lat: selectedQuest.lokasi.coordinates[1] });
+            setSelectedRoute(route);
+        } catch (error) {
+            setSelectedRoute(null);
+            toast.error(`Rute jalan gagal dimuat: ${error.message}`);
+        } finally {
+            setRouteLoading(false);
         }
     };
 
@@ -499,7 +568,8 @@ export default function Beranda() {
                             lineHeight: '1.5'
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontWeight: 'bold', color: 'var(--accent-coral)' }}>
-                                <span>⚠️ Akses Lokasi (GPS) Ditolak</span>
+                                <AlertTriangle size={18} strokeWidth={2.5} />
+                                <span>Akses Lokasi (GPS) Ditolak</span>
                             </div>
                             <p style={{ marginBottom: '8px' }}>
                                 Aplikasi tidak dapat mendeteksi lokasi asli Anda. Saat ini tugas ditampilkan menggunakan lokasi default Kelurahan Guntung Paikat.
@@ -520,15 +590,19 @@ export default function Beranda() {
                                             marginTop: '8px',
                                             width: '100%',
                                             backgroundColor: 'var(--accent-green)',
-                                            borderColor: 'var(--border-ink)'
+                                            borderColor: 'var(--border-ink)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '8px'
                                         }}
                                     >
-                                        📍 AKTIFKAN GPS SEKARANG
+                                        <MapPin size={17} strokeWidth={2.2} /> AKTIFKAN GPS SEKARANG
                                     </button>
                                 </div>
                             ) : (
                                 <ol style={{ paddingLeft: '20px', margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    <li>Klik ikon <strong>kunci/gembok (🔒)</strong> atau setelan di sebelah kiri alamat URL web browser Anda.</li>
+                                    <li>Klik ikon <strong>kunci/setelan</strong> di sebelah kiri alamat URL web browser Anda.</li>
                                     <li>Ubah izin <strong>Lokasi (Location)</strong> menjadi <strong>Izinkan (Allow)</strong>.</li>
                                     <li>Segarkan (refresh) halaman ini untuk memuat ulang lokasi Anda.</li>
                                 </ol>
@@ -549,7 +623,8 @@ export default function Beranda() {
                             lineHeight: '1.5'
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontWeight: 'bold', color: 'var(--accent-yellow, #d97706)' }}>
-                                <span>⚡ Pembekuan Aplikasi Latar Belakang Terdeteksi</span>
+                                <Zap size={18} strokeWidth={2.5} />
+                                <span>Pembekuan Aplikasi Latar Belakang Terdeteksi</span>
                             </div>
                             <p style={{ marginBottom: '8px' }}>
                                 Sistem HP Anda membatasi aplikasi di latar belakang. Notifikasi tugas baru tidak akan muncul jika aplikasi di-minimize kecuali optimasi baterai dinonaktifkan.
@@ -573,10 +648,14 @@ export default function Beranda() {
                                     color: 'var(--border-ink)',
                                     boxShadow: '3px 3px 0 var(--border-ink)',
                                     cursor: 'pointer',
-                                    borderRadius: '4px'
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px'
                                 }}
                             >
-                                🔋 Bypass Optimasi Baterai
+                                <BatteryCharging size={18} strokeWidth={2.2} /> Bypass Optimasi Baterai
                             </button>
                         </div>
                     )}
@@ -639,7 +718,7 @@ export default function Beranda() {
                             <span style={{ color: 'var(--text-muted)' }}>target <strong>Rp {targetHarian.toLocaleString('id-ID')}</strong></span>
                         </div>
                         <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', fontStyle: 'italic' }}>
-                            {progressPersen >= 100 ? "Luar biasa! Targetmu hari ini sudah tercapai. 🎉" : "Terus semangat mengejar target harianmu!"}
+                            {progressPersen >= 100 ? "Luar biasa! Targetmu hari ini sudah tercapai." : "Terus semangat mengejar target harianmu!"}
                         </p>
                     </div>
 
@@ -781,7 +860,7 @@ export default function Beranda() {
                     {/* ── Footer Keterangan ──────────────────── */}
                     <div style={{ border: '2px dashed var(--border-ink)', padding: '16px', borderRadius: 'var(--radius-medium)', textAlign: 'center', marginTop: '8px' }}>
                         <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                            Urutan ditentukan oleh Algoritma Haversine ($geoNear) — tugas paling dekat & sepadan tampil lebih dulu.
+                            Daftar diurutkan berdasarkan jarak terdekat dari lokasi Anda saat ini.
                         </p>
                     </div>
 
@@ -831,11 +910,39 @@ export default function Beranda() {
                                 boxZoom={true}
                                 keyboard={true}
                             >
-                                <MapResizeHandler center={[selectedQuest.lokasi.coordinates[1], selectedQuest.lokasi.coordinates[0]]} />
+                                <MapResizeHandler center={[selectedQuest.lokasi.coordinates[1], selectedQuest.lokasi.coordinates[0]]} routePositions={selectedRoute?.positions} />
                                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                {lastLoc && <Marker position={[lastLoc.lat, lastLoc.lng]} icon={workerLocationIcon} />}
                                 <Marker position={[selectedQuest.lokasi.coordinates[1], selectedQuest.lokasi.coordinates[0]]} icon={customIcon} />
+                                {selectedRoute?.positions?.length > 0 && <Polyline positions={selectedRoute.positions} pathOptions={{ color: '#2ba0ff', weight: 5, opacity: .9 }} />}
                             </MapContainer>
                         </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                            <div style={{ padding: '10px', background: 'var(--surface)', border: '1.5px solid var(--border-ink)', borderRadius: '10px' }}>
+                                <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: '10px', marginBottom: '3px' }}>JARAK LANGSUNG</span>
+                                <strong style={{ fontSize: '13px' }}>{formatRouteDistance(selectedQuest.jarak_meter)}</strong>
+                            </div>
+                            <div style={{ padding: '10px', background: '#e8f4ff', border: '1.5px solid var(--border-ink)', borderRadius: '10px' }}>
+                                <span style={{ display: 'block', color: '#0369A1', fontSize: '10px', marginBottom: '3px', fontWeight: '700' }}>RUTE JALAN · {transportMode === 'walk' ? 'JALAN KAKI' : 'MOTOR'}</span>
+                                <strong style={{ display: 'block', fontSize: '13px', color: '#0369A1' }}>
+                                    {routeLoading ? (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                            <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Menghitung rute…
+                                        </span>
+                                    ) : selectedRoute ? (
+                                        `${formatRouteDistance(selectedRoute.distanceMeters)} · ${formatRouteDuration(estimateRouteSeconds(selectedRoute, transportMode))}`
+                                    ) : (
+                                        'Rute tidak tersedia'
+                                    )}
+                                </strong>
+                            </div>
+                        </div>
+                        {!selectedRoute && !routeLoading && (
+                            <button type="button" onClick={handleCalculateSelectedRoute} className="btn btn-outline" style={{ marginBottom: '14px', fontSize: '11px', padding: '6px 12px' }}>
+                                ↺ MUAT ULANG RUTE
+                            </button>
+                        )}
 
                         <p style={{ color: 'var(--text-main)', fontSize: '14px', marginBottom: '16px', lineHeight: '1.55' }}>{selectedQuest.deskripsi}</p>
 
@@ -853,11 +960,11 @@ export default function Beranda() {
 
                         {/* Info Pembayaran */}
                         <div className="info-box" style={{ marginBottom: '20px', borderRadius: 'var(--radius-medium)' }}>
-                            <p style={{ fontSize: '12px', color: 'var(--text-main)', fontWeight: '600', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span>⚠️</span> INFORMASI PEMBAYARAN
+                            <p style={{ fontSize: '12px', color: 'var(--text-main)', fontWeight: '600', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <AlertTriangle size={15} strokeWidth={2.2} color="var(--accent-coral)" /> INFORMASI PEMBAYARAN
                             </p>
                             <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-                                Pembayaran bersifat <strong>TUNAI / C.O.D</strong> saat bertatap muka. Pembayaran menggunakan QRIS, E-Wallet, atau kesepakatan bonus tambahan adalah murni <strong>urusan privat</strong> di luar tanggung jawab aplikasi. <br /><br /><strong>Catatan:</strong> Jika uang yang diberikan lebih besar, sistem hanya akan mencatat riwayat upah sesuai nominal yang tercantum di aplikasi ini.
+                                Ajukan penawaran dan negosiasikan upah melalui chat pribadi sebelum quest diberikan kepada Pekerja. Pekerjaan dimulai setelah kesepakatan dan <strong>pembayaran</strong> berhasil.
                             </p>
                         </div>
 
@@ -885,7 +992,7 @@ export default function Beranda() {
                                             boxShadow: transportMode === 'walk' ? '2px 2px 0px var(--border-ink)' : 'none'
                                         }}
                                     >
-                                        🚶 Jalan Kaki
+                                        <Footprints size={18} strokeWidth={2.2} /> Jalan Kaki
                                     </button>
                                     <button
                                         type="button"
@@ -906,7 +1013,7 @@ export default function Beranda() {
                                             boxShadow: transportMode === 'motorcycle' ? '2px 2px 0px var(--border-ink)' : 'none'
                                         }}
                                     >
-                                        🏍️ Sepeda Motor
+                                        <Bike size={18} strokeWidth={2.2} /> Sepeda Motor
                                     </button>
                                 </div>
                             </div>
@@ -916,9 +1023,9 @@ export default function Beranda() {
                         <div style={{ display: 'flex', gap: '12px' }}>
                             <button onClick={() => { setSelectedQuest(null); setTransportMode('walk'); }} className="btn btn-outline" style={{ flex: 1 }}>BATAL</button>
                             {isGuest ? (
-                                <button onClick={() => { toast.error('Anda harus Login/Daftar akun sungguhan untuk bisa mengambil tugas dan mendapatkan uang!'); navigate('/login'); }} className="btn btn-green" style={{ flex: 1 }}>LOGIN UNTUK AMBIL</button>
+                                <button onClick={() => { toast.error('Anda harus Login/Daftar untuk mengajukan penawaran.'); navigate('/login'); }} className="btn btn-green" style={{ flex: 1 }}>LOGIN UNTUK MENAWAR</button>
                             ) : (
-                                <button onClick={() => handleTakeQuest(selectedQuest._id)} className="btn btn-primary" style={{ flex: 1 }}>AMBIL TUGAS</button>
+                                <button onClick={() => handleOpenNegotiation(selectedQuest._id)} className="btn btn-primary" style={{ flex: 1 }}>AJUKAN PENAWARAN</button>
                             )}
                         </div>
                     </div>

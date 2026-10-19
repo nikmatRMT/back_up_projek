@@ -8,7 +8,7 @@ exports.getProfile = async (req, res) => {
             return res.status(400).json({ success: false, message: "user_id diperlukan" });
         }
 
-        const user = await User.findById(user_id);
+        const user = await User.findById(user_id).select('-password');
         if (!user) {
             return res.status(404).json({ success: false, message: "Pengguna tidak ditemukan" });
         }

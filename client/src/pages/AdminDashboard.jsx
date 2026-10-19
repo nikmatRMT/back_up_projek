@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { removeStorageItem } from '../utils/storageHelper';
 import Logo from '../components/Logo';
+import { Banknote, QrCode, Building2, Wallet, Printer, Check, X, Clock, Camera, ShieldCheck, CreditCard, ExternalLink, RotateCcw, LogOut } from 'lucide-react';
 
 export default function AdminDashboard() {
     const navigate = useNavigate();
@@ -11,12 +12,18 @@ export default function AdminDashboard() {
     const [stats, setStats] = useState({ totalUsers: 0, activeQuests: 0, completedToday: 0, fictitiousOrders: 0 });
     const [users, setUsers] = useState([]);
     const [quests, setQuests] = useState([]);
-    const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'users', 'quests', 'reports'
+    const [payments, setPayments] = useState([]);
+    const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'users', 'quests', 'payments', 'reports'
     const [searchQuery, setSearchQuery] = useState('');
     const [questFilter, setQuestFilter] = useState('ALL'); // 'ALL', 'OPEN', 'TAKEN', 'COMPLETED', 'CANCELED'
+    const [kycFilter, setKycFilter] = useState('ALL'); // 'ALL', 'VERIFIED', 'UNVERIFIED', 'REJECTED'
+    const [paymentStatusFilter, setPaymentStatusFilter] = useState('ALL'); // 'ALL', 'PAID', 'PENDING', 'UNPAID', 'FAILED', 'REFUNDED'
+    const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL'); // 'ALL', 'QRIS', 'VA', 'EWALLET'
     const [selectedReport, setSelectedReport] = useState(null); // 'users', 'completed', 'canceled', 'turnover'
     const [isLoading, setIsLoading] = useState(true);
     const [showLogoutModal, setShowLogoutModal] = useState(false);
+    const [selectedKycUser, setSelectedKycUser] = useState(null);
+    const [selectedPaymentQuest, setSelectedPaymentQuest] = useState(null);
     const MY_USER_ID = localStorage.getItem('myUserId');
     const [adminName, setAdminName] = useState(localStorage.getItem('userName') || 'Admin');
 
@@ -40,6 +47,11 @@ export default function AdminDashboard() {
             const questsRes = await axios.get('/api/admin/quests');
             if (questsRes.data.success) {
                 setQuests(questsRes.data.data);
+            }
+
+            const paymentsRes = await axios.get('/api/admin/payments');
+            if (paymentsRes.data.success) {
+                setPayments(paymentsRes.data.data);
             }
         } catch (err) {
             console.error("Gagal memuat data admin:", err);
@@ -105,6 +117,40 @@ export default function AdminDashboard() {
         }
     };
 
+    const handleUpdateKycStatus = async (userId, targetStatus, reason = '') => {
+        let actionWord = targetStatus === 'VERIFIED' ? 'MENYETUJUI / MEMVERIFIKASI' : targetStatus === 'REJECTED' ? 'MENOLAK' : 'MEMBATALKAN / MENCABUT';
+        if (targetStatus === 'REJECTED' && !reason) {
+            const inputReason = window.prompt("Masukkan alasan penolakan verifikasi KTP (opsional):", "Data foto KTP buram atau tidak sesuai.");
+            if (inputReason === null) return; // User canceled prompt
+            reason = inputReason.trim() || 'Verifikasi ditolak oleh Administrator.';
+        } else if (!window.confirm(`Yakin ingin ${actionWord} status verifikasi pengguna ini?`)) {
+            return;
+        }
+
+        try {
+            const res = await axios.put(`/api/admin/users/${userId}/kyc-status`, {
+                status: targetStatus,
+                rejection_reason: reason
+            });
+            if (res.data.success) {
+                const updatedUser = res.data.data;
+                setUsers(prev => prev.map(u => u._id === userId ? { ...u, ...updatedUser } : u));
+                if (selectedKycUser && selectedKycUser._id === userId) {
+                    setSelectedKycUser(prev => ({ ...prev, ...updatedUser }));
+                }
+                if (targetStatus === 'VERIFIED') {
+                    toast.success(res.data.message || "Pengguna berhasil diverifikasi!");
+                } else if (targetStatus === 'REJECTED') {
+                    toast.error(res.data.message || "Verifikasi pengguna ditolak.");
+                } else {
+                    toast.success(res.data.message || "Status verifikasi berhasil dicabut.");
+                }
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Gagal memperbarui status KYC");
+        }
+    };
+
     const handleCancelQuest = async (questId) => {
         if (!window.confirm("PERINGATAN: Yakin ingin membatalkan tugas ini secara paksa? Aksi ini akan mengubah status tugas menjadi CANCELED.")) return;
         try {
@@ -121,6 +167,55 @@ export default function AdminDashboard() {
         }
     };
 
+    const handleProcessRefund = async (questId) => {
+        const reason = window.prompt("Masukkan alasan pemrosesan refund dana:", "Pengembalian dana akibat sengketa / pembatalan tugas.");
+        if (reason === null) return; // Batal
+        if (!window.confirm("PERINGATAN: Yakin ingin memproses REFUND untuk transaksi tugas ini? Status pembayaran akan diubah menjadi REFUNDED.")) return;
+
+        try {
+            const res = await axios.put(`/api/admin/payments/${questId}/refund`, { reason: reason.trim() });
+            if (res.data.success) {
+                toast.success(res.data.message || "Dana berhasil di-refund.");
+                const updated = res.data.data;
+                setPayments(prev => prev.map(p => p._id === questId ? { ...p, payment_status: 'REFUNDED', refund_reason: updated.refund_reason } : p));
+                setQuests(prev => prev.map(q => q._id === questId ? { ...q, payment_status: 'REFUNDED', refund_reason: updated.refund_reason } : q));
+                if (selectedPaymentQuest && selectedPaymentQuest._id === questId) {
+                    setSelectedPaymentQuest(prev => ({ ...prev, payment_status: 'REFUNDED', refund_reason: updated.refund_reason }));
+                }
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Gagal memproses refund");
+        }
+    };
+
+    const paymentStatusLabel = (status) => ({
+        PAID: 'Berhasil (PAID)',
+        PENDING: 'Menunggu (PENDING)',
+        UNPAID: 'Belum Bayar (UNPAID)',
+        FAILED: 'Gagal (FAILED)',
+        EXPIRED: 'Kedaluwarsa (EXPIRED)',
+        REFUNDED: 'Di-refund (REFUNDED)',
+        NOT_REQUIRED: 'Tunai / COD'
+    }[status] || status || 'Tunai / COD');
+
+    const paymentStatusColor = (status) => ({
+        PAID: { bg: '#D1FAE5', text: '#065F46', border: '#059669' },
+        PENDING: { bg: '#FEF3C7', text: '#92400E', border: '#D97706' },
+        UNPAID: { bg: '#FFEDD5', text: '#C2410C', border: '#EA580C' },
+        FAILED: { bg: '#FEE2E2', text: '#991B1B', border: '#DC2626' },
+        EXPIRED: { bg: '#F1F5F9', text: '#475569', border: '#94A3B8' },
+        REFUNDED: { bg: '#E0E7FF', text: '#3730A3', border: '#4F46E5' },
+        NOT_REQUIRED: { bg: '#F3F4F6', text: '#374151', border: '#9CA3AF' }
+    }[status] || { bg: '#F3F4F6', text: '#374151', border: '#9CA3AF' });
+
+    const paymentMethodIcon = (method) => {
+        if (method === 'COD') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><Banknote size={14} strokeWidth={2.2} /> Tunai (COD P2P)</span>;
+        if (method === 'QRIS') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><QrCode size={14} strokeWidth={2.2} /> QRIS P2P</span>;
+        if (method === 'VA') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><Building2 size={14} strokeWidth={2.2} /> Virtual Account</span>;
+        if (method === 'EWALLET') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><Wallet size={14} strokeWidth={2.2} /> E-Wallet</span>;
+        return method || 'Tunai (COD P2P)';
+    };
+
     const handleLogoutClick = () => {
         setShowLogoutModal(true);
     };
@@ -135,11 +230,26 @@ export default function AdminDashboard() {
     };
 
     // Filter Pengguna berdasarkan pencarian
-    const filteredUsers = users.filter(u => 
-        u.nama_lengkap.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        u.no_whatsapp.includes(searchQuery)
-    );
+    const filteredUsers = users.filter(u => {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = (u.nama_lengkap || '').toLowerCase().includes(query) ||
+            (u.email || '').toLowerCase().includes(query) ||
+            (u.no_whatsapp || '').includes(searchQuery);
+        const matchesKyc = kycFilter === 'ALL' || (u.kyc_status || 'UNVERIFIED') === kycFilter;
+        return matchesSearch && matchesKyc;
+    });
+
+    const kycSummary = {
+        VERIFIED: users.filter(u => u.kyc_status === 'VERIFIED').length,
+        UNVERIFIED: users.filter(u => !u.kyc_status || u.kyc_status === 'UNVERIFIED').length,
+        REJECTED: users.filter(u => u.kyc_status === 'REJECTED').length
+    };
+
+    const kycLabel = (status) => ({
+        VERIFIED: 'Terverifikasi',
+        UNVERIFIED: 'Belum verifikasi',
+        REJECTED: 'Ditolak'
+    }[status] || 'Belum verifikasi');
 
     // Filter Tugas berdasarkan pencarian dan status filter
     const filteredQuests = quests.filter(q => {
@@ -151,6 +261,29 @@ export default function AdminDashboard() {
         const matchesFilter = questFilter === 'ALL' || q.status === questFilter;
         return matchesSearch && matchesFilter;
     });
+
+    // Filter Pembayaran
+    const filteredPayments = payments.filter(p => {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = (p.payment_reference || '').toLowerCase().includes(query) ||
+            (p.deskripsi || '').toLowerCase().includes(query) ||
+            (p.pembuat_id?.nama_lengkap || '').toLowerCase().includes(query) ||
+            (p.pembuat_id?.email || '').toLowerCase().includes(query) ||
+            (p.pekerja_id?.nama_lengkap || '').toLowerCase().includes(query);
+        const matchesStatus = paymentStatusFilter === 'ALL' || (p.payment_status || 'NOT_REQUIRED') === paymentStatusFilter;
+        const matchesMethod = paymentMethodFilter === 'ALL' || (p.payment_method || 'CASH') === paymentMethodFilter;
+        return matchesSearch && matchesStatus && matchesMethod;
+    });
+
+    const paymentStats = {
+        totalCount: payments.length,
+        paidCount: payments.filter(p => p.payment_status === 'PAID').length,
+        paidTotalNominal: payments.filter(p => p.payment_status === 'PAID').reduce((sum, p) => sum + (p.upah_jasa || 0) + (p.nominal_talangan || 0), 0),
+        pendingCount: payments.filter(p => ['PENDING', 'UNPAID'].includes(p.payment_status)).length,
+        refundedCount: payments.filter(p => p.payment_status === 'REFUNDED').length,
+        failedCount: payments.filter(p => ['FAILED', 'EXPIRED'].includes(p.payment_status)).length
+    };
+
 
     const getReportData = (type) => {
         switch (type) {
@@ -325,7 +458,7 @@ export default function AdminDashboard() {
                     i + 1, 
                     w.name, 
                     w.no_wa, 
-                    `⭐ ${w.rating} (${w.total_ulasan})`,
+                    `${w.rating} / 5 (${w.total_ulasan} ulasan)`,
                     w.selesai, 
                     w.no_show, 
                     w.incomplete, 
@@ -473,9 +606,9 @@ export default function AdminDashboard() {
                     </button>
                     <button 
                         onClick={() => window.print()}
-                        style={{ padding: '10px 20px', backgroundColor: 'var(--color-coral-pop)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '600', fontFamily: 'var(--font-inter)' }}
+                        style={{ padding: '10px 20px', backgroundColor: 'var(--color-coral-pop)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: '600', fontFamily: 'var(--font-inter)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
                     >
-                        🖨️ Cetak / Simpan PDF
+                        <Printer size={16} strokeWidth={2.2} /> Cetak / Simpan PDF
                     </button>
                 </div>
 
@@ -564,7 +697,7 @@ export default function AdminDashboard() {
     }
 
     return (
-        <div className="fade-up" style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--color-cream-paper)', width: '100vw', maxWidth: 'none' }}>
+        <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--color-cream-paper)', width: '100vw', maxWidth: 'none' }}>
             
             {/* Sidebar */}
             <aside style={{ width: '260px', backgroundColor: 'var(--color-pure-white)', borderRight: '2px solid var(--color-ink-black)', display: 'flex', flexDirection: 'column' }}>
@@ -614,6 +747,18 @@ export default function AdminDashboard() {
                         Pantau Transaksi
                     </button>
                     <button 
+                        onClick={() => { setActiveTab('payments'); setSearchQuery(''); }}
+                        style={{ 
+                            width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
+                            display: 'block', padding: '16px 24px', transition: 'all 0.2s',
+                            backgroundColor: activeTab === 'payments' ? 'var(--color-fresh-grass)' : 'transparent', 
+                            color: activeTab === 'payments' ? 'var(--color-ink-black)' : 'var(--color-stone-gray)', 
+                            fontWeight: activeTab === 'payments' ? '700' : '500', fontFamily: 'var(--font-inter)' 
+                        }}
+                    >
+                        Monitoring Pembayaran
+                    </button>
+                    <button 
                         onClick={() => { setActiveTab('reports'); setSearchQuery(''); }}
                         style={{ 
                             width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
@@ -635,7 +780,7 @@ export default function AdminDashboard() {
             </aside>
 
             {/* Main Content */}
-            <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
+            <main className="fade-up" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
                 
                 {/* Topbar */}
                 <header style={{ padding: '20px 32px', backgroundColor: 'var(--color-pure-white)', borderBottom: '2px solid var(--color-ink-black)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -643,6 +788,7 @@ export default function AdminDashboard() {
                         {activeTab === 'dashboard' && "Statistik Sistem Utama"}
                         {activeTab === 'users' && "Kelola Pengguna Aplikasi"}
                         {activeTab === 'quests' && "Pemantauan Transaksi Tugas"}
+                        {activeTab === 'payments' && "Monitoring Pembayaran & Keuangan"}
                         {activeTab === 'reports' && "Pusat Cetak Dokumen Laporan"}
                     </h2>
                     
@@ -651,7 +797,7 @@ export default function AdminDashboard() {
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <input 
                                 type="text" 
-                                placeholder={activeTab === 'users' ? "Cari nama, email, whatsapp..." : "Cari deskripsi, kategori, user..."}
+                                placeholder={activeTab === 'users' ? "Cari nama, email, whatsapp..." : activeTab === 'payments' ? "Cari referensi, deskripsi, user..." : "Cari deskripsi, kategori, user..."}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 style={{ padding: '8px 16px', border: '2px solid var(--color-ink-black)', borderRadius: '50px', outline: 'none', width: '280px', fontSize: '0.9rem', fontFamily: 'var(--font-inter)' }} 
@@ -765,6 +911,22 @@ export default function AdminDashboard() {
                                 <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700' }}>DATA PENGGUNA TERDAFTAR</h3>
                                 <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Menampilkan {filteredUsers.length} dari {users.length} pengguna</p>
                             </div>
+                            <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-light)', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.8rem', fontWeight: '800', color: 'var(--text-muted)', marginRight: '4px' }}>STATUS KYC:</span>
+                                {[
+                                    ['ALL', `Semua (${users.length})`],
+                                    ['VERIFIED', `Terverifikasi (${kycSummary.VERIFIED})`],
+                                    ['UNVERIFIED', `Belum verifikasi (${kycSummary.UNVERIFIED})`],
+                                    ['REJECTED', `Ditolak (${kycSummary.REJECTED})`]
+                                ].map(([filter, label]) => (
+                                    <button key={filter} onClick={() => setKycFilter(filter)} style={{
+                                        padding: '7px 11px', border: '1.5px solid var(--border-ink)', borderRadius: '999px', cursor: 'pointer',
+                                        backgroundColor: kycFilter === filter ? 'var(--accent-green)' : 'var(--surface)',
+                                        color: 'var(--text-main)', fontWeight: '700', fontSize: '0.75rem'
+                                    }}>{label}</button>
+                                ))}
+                                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-muted)' }}>NIK dan foto KTP tidak ditampilkan.</span>
+                            </div>
                             
                             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                                 <thead>
@@ -773,6 +935,7 @@ export default function AdminDashboard() {
                                         <th style={{ padding: '16px 24px', fontWeight: '700' }}>Nama Lengkap</th>
                                         <th style={{ padding: '16px 24px', fontWeight: '700' }}>No. WhatsApp</th>
                                         <th style={{ padding: '16px 24px', fontWeight: '700', textAlign: 'center' }}>Saldo Wallet</th>
+                                        <th style={{ padding: '16px 24px', fontWeight: '700', textAlign: 'center' }}>Status KYC</th>
                                         <th style={{ padding: '16px 24px', fontWeight: '700', textAlign: 'center' }}>Status Akun</th>
                                         <th style={{ padding: '16px 24px', fontWeight: '700', textAlign: 'center' }}>Aksi</th>
                                     </tr>
@@ -780,7 +943,7 @@ export default function AdminDashboard() {
                                 <tbody>
                                     {filteredUsers.length === 0 ? (
                                         <tr>
-                                            <td colSpan="6" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: '600' }}>Data pengguna tidak ditemukan.</td>
+                                            <td colSpan="7" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: '600' }}>Data pengguna tidak ditemukan.</td>
                                         </tr>
                                     ) : (
                                         filteredUsers.map((user, index) => (
@@ -795,6 +958,23 @@ export default function AdminDashboard() {
                                                     Rp {user.saldo?.toLocaleString('id-ID') || 0}
                                                 </td>
                                                 <td style={{ padding: '16px 24px', textAlign: 'center' }}>
+                                                    <button
+                                                        onClick={() => setSelectedKycUser(user)}
+                                                        title="Klik untuk membuka detail & kelola verifikasi identitas"
+                                                        style={{
+                                                            backgroundColor: user.kyc_status === 'VERIFIED' ? '#D1FAE5' : user.kyc_status === 'REJECTED' ? '#FEE2E2' : '#FEF3C7',
+                                                            color: user.kyc_status === 'VERIFIED' ? '#065F46' : user.kyc_status === 'REJECTED' ? '#991B1B' : '#92400E',
+                                                            border: '1.5px solid ' + (user.kyc_status === 'VERIFIED' ? '#059669' : user.kyc_status === 'REJECTED' ? '#DC2626' : '#D97706'),
+                                                            padding: '4px 10px', fontWeight: '700', fontSize: '0.75rem', borderRadius: '6px', cursor: 'pointer',
+                                                            display: 'inline-flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s'
+                                                        }}
+                                                    >
+                                                        <span>{user.kyc_status === 'VERIFIED' ? <Check size={12} strokeWidth={2.5} /> : user.kyc_status === 'REJECTED' ? <X size={12} strokeWidth={2.5} /> : <Clock size={12} strokeWidth={2.5} />}</span>
+                                                        <span>{kycLabel(user.kyc_status || 'UNVERIFIED')}</span>
+                                                    </button>
+                                                    {user.kyc_verified_at && <small style={{ display: 'block', marginTop: '5px', color: 'var(--text-muted)', fontSize: '0.7rem' }}>{new Date(user.kyc_verified_at).toLocaleDateString('id-ID')}</small>}
+                                                </td>
+                                                <td style={{ padding: '16px 24px', textAlign: 'center' }}>
                                                     <span style={{ 
                                                         backgroundColor: user.status === 'ACTIVE' ? '#D1FAE5' : '#FEE2E2', 
                                                         color: user.status === 'ACTIVE' ? '#065F46' : '#991B1B',
@@ -805,12 +985,24 @@ export default function AdminDashboard() {
                                                 </td>
                                                 <td style={{ padding: '16px 24px', textAlign: 'center' }}>
                                                     {user.role !== 'admin' ? (
-                                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                                            <button
+                                                                onClick={() => setSelectedKycUser(user)}
+                                                                title="Kelola verifikasi identitas dan lihat dokumen KTP"
+                                                                style={{
+                                                                    border: 'none', background: user.kyc_document_image ? '#6366F1' : '#475569', color: '#fff', padding: '6px 12px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px'
+                                                                }}
+                                                            >
+                                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                                                    {user.kyc_document_image ? <Camera size={14} strokeWidth={2.2} /> : <ShieldCheck size={14} strokeWidth={2.2} />}
+                                                                    {user.kyc_document_image ? 'Lihat KTP' : 'Kelola KYC'}
+                                                                </span>
+                                                            </button>
                                                             <button 
                                                                 onClick={() => toggleStatus(user._id)}
                                                                 style={{ 
                                                                     border: 'none', background: user.status === 'ACTIVE' ? '#F59E0B' : '#10B981', 
-                                                                    color: '#fff', padding: '6px 14px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
+                                                                    color: '#fff', padding: '6px 12px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
                                                                 }}
                                                             >
                                                                 {user.status === 'ACTIVE' ? 'Blokir' : 'Buka Blokir'}
@@ -819,7 +1011,7 @@ export default function AdminDashboard() {
                                                                 onClick={() => handleDeleteUser(user._id)}
                                                                 style={{ 
                                                                     border: 'none', background: '#EF4444', 
-                                                                    color: '#fff', padding: '6px 14px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
+                                                                    color: '#fff', padding: '6px 12px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
                                                                 }}
                                                             >
                                                                 Hapus
@@ -828,7 +1020,7 @@ export default function AdminDashboard() {
                                                                 onClick={() => handleResetPassword(user._id)}
                                                                 style={{ 
                                                                     border: 'none', background: '#3B82F6', 
-                                                                    color: '#fff', padding: '6px 14px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
+                                                                    color: '#fff', padding: '6px 12px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.8rem', transition: 'transform 0.1s' 
                                                                 }}
                                                             >
                                                                 Reset Sandi
@@ -926,6 +1118,16 @@ export default function AdminDashboard() {
                                                         }}>
                                                             {quest.status}
                                                         </span>
+                                                        {quest.payment_status && quest.payment_status !== 'NOT_REQUIRED' && (
+                                                            <span style={{
+                                                                display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px', fontSize: '0.68rem', fontWeight: '700', padding: '2px 6px', borderRadius: '4px',
+                                                                backgroundColor: paymentStatusColor(quest.payment_status).bg,
+                                                                color: paymentStatusColor(quest.payment_status).text,
+                                                                border: `1px solid ${paymentStatusColor(quest.payment_status).border}`
+                                                            }}>
+                                                                <CreditCard size={11} strokeWidth={2.2} /> {quest.payment_status}
+                                                            </span>
+                                                        )}
                                                     </td>
                                                     <td style={{ padding: '16px 20px', textAlign: 'center' }}>
                                                         {(quest.status === 'OPEN' || quest.status === 'TAKEN') ? (
@@ -951,10 +1153,200 @@ export default function AdminDashboard() {
                         </div>
                     )}
 
-                    {/* TAB CONTENT: 4. LAPORAN CETAK */}
+                    {/* TAB CONTENT: 4. MONITORING PEMBAYARAN */}
+                    {activeTab === 'payments' && (
+                        <div className="fade-up">
+                            {/* Summary Cards */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', padding: '20px', border: '2px solid var(--color-ink-black)', borderRadius: '20px', borderTop: '4px solid #10B981', boxShadow: '4px 4px 0px var(--color-ink-black)' }}>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '800', marginBottom: '6px' }}>TOTAL DANA BERHASIL (PAID)</p>
+                                    <h2 style={{ fontSize: '1.6rem', color: '#065F46', margin: '0 0 4px 0', fontWeight: '900' }}>Rp {paymentStats.paidTotalNominal.toLocaleString('id-ID')}</h2>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}><strong>{paymentStats.paidCount}</strong> transaksi sukses</p>
+                                </div>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', padding: '20px', border: '2px solid var(--color-ink-black)', borderRadius: '20px', borderTop: '4px solid #F59E0B', boxShadow: '4px 4px 0px var(--color-ink-black)' }}>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '800', marginBottom: '6px' }}>MENUNGGU PEMBAYARAN</p>
+                                    <h2 style={{ fontSize: '1.6rem', color: '#92400E', margin: '0 0 4px 0', fontWeight: '900' }}>{paymentStats.pendingCount}</h2>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>Status PENDING / UNPAID</p>
+                                </div>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', padding: '20px', border: '2px solid var(--color-ink-black)', borderRadius: '20px', borderTop: '4px solid #6366F1', boxShadow: '4px 4px 0px var(--color-ink-black)' }}>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '800', marginBottom: '6px' }}>TOTAL TRANSAKSI REFUND</p>
+                                    <h2 style={{ fontSize: '1.6rem', color: '#3730A3', margin: '0 0 4px 0', fontWeight: '900' }}>{paymentStats.refundedCount}</h2>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>Pengembalian dana diproses</p>
+                                </div>
+                                <div style={{ backgroundColor: 'var(--color-pure-white)', padding: '20px', border: '2px solid var(--color-ink-black)', borderRadius: '20px', borderTop: '4px solid #EF4444', boxShadow: '4px 4px 0px var(--color-ink-black)' }}>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '800', marginBottom: '6px' }}>GAGAL / KEDALUWARSA</p>
+                                    <h2 style={{ fontSize: '1.6rem', color: '#991B1B', margin: '0 0 4px 0', fontWeight: '900' }}>{paymentStats.failedCount}</h2>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>FAILED / EXPIRED</p>
+                                </div>
+                            </div>
+
+                            {/* Filter Bar */}
+                            <div className="clean-card" style={{ padding: '16px 20px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)', marginRight: '6px' }}>STATUS BAYAR:</span>
+                                    {[
+                                        ['ALL', `Semua (${payments.length})`],
+                                        ['PAID', `Berhasil (${paymentStats.paidCount})`],
+                                        ['PENDING', `Menunggu (${payments.filter(p => p.payment_status === 'PENDING').length})`],
+                                        ['UNPAID', `Belum Bayar (${payments.filter(p => p.payment_status === 'UNPAID').length})`],
+                                        ['REFUNDED', `Di-refund (${paymentStats.refundedCount})`],
+                                        ['FAILED', `Gagal (${payments.filter(p => p.payment_status === 'FAILED').length})`],
+                                        ['NOT_REQUIRED', `Tunai/COD (${payments.filter(p => !p.payment_status || p.payment_status === 'NOT_REQUIRED').length})`]
+                                    ].map(([statusKey, label]) => (
+                                        <button
+                                            key={statusKey}
+                                            onClick={() => setPaymentStatusFilter(statusKey)}
+                                            style={{
+                                                padding: '6px 12px', border: '1.5px solid var(--border-ink)', borderRadius: '999px', cursor: 'pointer',
+                                                backgroundColor: paymentStatusFilter === statusKey ? 'var(--accent-green)' : 'var(--surface)',
+                                                color: 'var(--text-main)', fontWeight: '700', fontSize: '0.75rem'
+                                            }}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', borderTop: '1px solid var(--border-light)', paddingTop: '10px' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)', marginRight: '6px' }}>METODE BAYAR:</span>
+                                    {[
+                                        ['ALL', 'Semua Metode'],
+                                        ['COD', 'Tunai (COD P2P)'],
+                                        ['QRIS', 'QRIS P2P'],
+                                        ['EWALLET', 'E-Wallet'],
+                                        ['VA', 'Virtual Account']
+                                    ].map(([methodKey, label]) => (
+                                        <button
+                                            key={methodKey}
+                                            onClick={() => setPaymentMethodFilter(methodKey)}
+                                            style={{
+                                                padding: '5px 12px', border: '1px solid var(--border-light)', borderRadius: '6px', cursor: 'pointer',
+                                                backgroundColor: paymentMethodFilter === methodKey ? 'var(--color-ink-black)' : 'var(--surface)',
+                                                color: paymentMethodFilter === methodKey ? '#fff' : 'var(--text-muted)',
+                                                fontWeight: '700', fontSize: '0.75rem'
+                                            }}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Table */}
+                            <div className="clean-card" style={{ padding: 0 }}>
+                                <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <h3 style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700' }}>DATA TRANSAKSI PEMBAYARAN</h3>
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Menampilkan {filteredPayments.length} dari {payments.length} transaksi</p>
+                                </div>
+
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                    <thead>
+                                        <tr style={{ backgroundColor: 'var(--color-ink-black)', color: '#fff' }}>
+                                            <th style={{ padding: '16px 20px', fontWeight: '700', width: '50px' }}>No</th>
+                                            <th style={{ padding: '16px 20px', fontWeight: '700', width: '150px' }}>No. Referensi</th>
+                                            <th style={{ padding: '16px 20px', fontWeight: '700' }}>Deskripsi Tugas</th>
+                                            <th style={{ padding: '16px 20px', fontWeight: '700' }}>Pembayar (Klien) & Pekerja</th>
+                                            <th style={{ padding: '16px 20px', fontWeight: '700', textAlign: 'right', width: '140px' }}>Total Bayar</th>
+                                            <th style={{ padding: '16px 20px', fontWeight: '700', textAlign: 'center', width: '130px' }}>Metode</th>
+                                            <th style={{ padding: '16px 20px', fontWeight: '700', textAlign: 'center', width: '150px' }}>Status Pembayaran</th>
+                                            <th style={{ padding: '16px 20px', fontWeight: '700', textAlign: 'center', width: '130px' }}>Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredPayments.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="8" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: '600' }}>Tidak ada data transaksi pembayaran sesuai filter.</td>
+                                            </tr>
+                                        ) : (
+                                            filteredPayments.map((p, index) => {
+                                                const totalAmount = (p.upah_jasa || 0) + (p.nominal_talangan || 0);
+                                                const color = paymentStatusColor(p.payment_status || 'NOT_REQUIRED');
+                                                return (
+                                                    <tr key={p._id} style={{ borderBottom: '1px solid var(--border-light)', transition: 'background-color 0.15s' }}>
+                                                        <td style={{ padding: '16px 20px', fontWeight: '600', color: 'var(--text-muted)' }}>{index + 1}</td>
+                                                        <td style={{ padding: '16px 20px' }}>
+                                                            <span style={{ fontWeight: '800', fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-main)' }}>
+                                                                {p.payment_reference || '-'}
+                                                            </span>
+                                                            <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '2px' }}>
+                                                                {p.paid_at ? new Date(p.paid_at).toLocaleString('id-ID') : p.created_at ? new Date(p.created_at).toLocaleDateString('id-ID') : '-'}
+                                                            </small>
+                                                        </td>
+                                                        <td style={{ padding: '16px 20px', fontSize: '0.88rem', color: 'var(--text-main)' }}>
+                                                            <span style={{
+                                                                fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: '700', marginRight: '6px',
+                                                                backgroundColor: p.kategori === 'jastip' ? '#FEE2E2' : p.kategori === 'fisik' ? '#E0F2FE' : '#FEF3C7',
+                                                                color: p.kategori === 'jastip' ? '#991B1B' : p.kategori === 'fisik' ? '#0369A1' : '#92400E'
+                                                            }}>
+                                                                {p.kategori?.toUpperCase()}
+                                                            </span>
+                                                            <span style={{ fontWeight: '600' }}>{p.deskripsi}</span>
+                                                        </td>
+                                                        <td style={{ padding: '16px 20px', fontSize: '0.82rem' }}>
+                                                            <div><span style={{ fontWeight: '700', color: 'var(--text-main)' }}>Klien:</span> {p.pembuat_id?.nama_lengkap || '-'}</div>
+                                                            <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}><span style={{ fontWeight: '700' }}>Pekerja:</span> {p.pekerja_id?.nama_lengkap || '-'}</div>
+                                                        </td>
+                                                        <td style={{ padding: '16px 20px', textAlign: 'right' }}>
+                                                            <span style={{ fontWeight: '800', color: 'var(--text-main)', fontSize: '0.92rem' }}>Rp {totalAmount.toLocaleString('id-ID')}</span>
+                                                            <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.7rem' }}>Upah: Rp {p.upah_jasa?.toLocaleString('id-ID')} {p.nominal_talangan > 0 && `+ Talangan: Rp ${p.nominal_talangan.toLocaleString('id-ID')}`}</small>
+                                                        </td>
+                                                        <td style={{ padding: '16px 20px', textAlign: 'center' }}>
+                                                            <span style={{
+                                                                fontSize: '0.75rem', fontWeight: '700', padding: '4px 8px', borderRadius: '6px',
+                                                                backgroundColor: '#F1F5F9', color: '#1E293B', border: '1px solid #CBD5E1', display: 'inline-block'
+                                                            }}>
+                                                                {paymentMethodIcon(p.payment_method)}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ padding: '16px 20px', textAlign: 'center' }}>
+                                                            <span style={{
+                                                                padding: '4px 10px', fontWeight: '800', fontSize: '0.75rem', borderRadius: '6px',
+                                                                backgroundColor: color.bg, color: color.text, border: `1px solid ${color.border}`, display: 'inline-block'
+                                                            }}>
+                                                                {paymentStatusLabel(p.payment_status)}
+                                                            </span>
+                                                            {p.refund_reason && (
+                                                                <small style={{ display: 'block', color: '#B91C1C', fontSize: '0.68rem', marginTop: '3px' }} title={p.refund_reason}>
+                                                                    Alasan: {p.refund_reason.slice(0, 24)}...
+                                                                </small>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ padding: '16px 20px', textAlign: 'center' }}>
+                                                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                                                <button
+                                                                    onClick={() => setSelectedPaymentQuest(p)}
+                                                                    style={{
+                                                                        border: 'none', background: '#3B82F6', color: '#fff', padding: '5px 10px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.75rem'
+                                                                    }}
+                                                                >
+                                                                    Detail
+                                                                </button>
+                                                                {p.payment_status === 'PAID' && (
+                                                                    <button
+                                                                        onClick={() => handleProcessRefund(p._id)}
+                                                                        style={{
+                                                                            border: 'none', background: '#EF4444', color: '#fff', padding: '5px 10px', cursor: 'pointer', fontWeight: '700', borderRadius: '6px', fontSize: '0.75rem'
+                                                                        }}
+                                                                    >
+                                                                        Refund
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TAB CONTENT: 5. LAPORAN CETAK */}
                     {activeTab === 'reports' && (
                         <div className="fade-up">
-                            <p style={{ color: 'var(--text-muted)', marginBottom: '24px', fontSize: '0.95rem' }}>Pilih jenis laporan akademik skripsi di bawah untuk memunculkan pratinjau lembaran cetak dengan kop surat, lalu unduh dokumen sebagai PDF.</p>
+                            <p style={{ color: 'var(--text-muted)', marginBottom: '24px', fontSize: '0.95rem' }}>Pilih jenis laporan sistem di bawah ini untuk melihat pratinjau lembaran dokumen resmi dengan kop surat, lalu cetak atau unduh sebagai file PDF.</p>
+
                             
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                                 
@@ -1077,6 +1469,247 @@ export default function AdminDashboard() {
                 </div>
             </main>
 
+            {selectedKycUser && (
+                <div style={{
+                    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.65)', zIndex: 9998,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', overflowY: 'auto'
+                }}>
+                    <div className="clean-card" style={{ backgroundColor: 'var(--color-pure-white)', width: '100%', maxWidth: '780px', padding: '28px', position: 'relative', border: '3px solid var(--color-ink-black)', borderRadius: '20px', boxShadow: '8px 8px 0px var(--color-ink-black)', maxHeight: '92vh', overflowY: 'auto' }}>
+                        <button onClick={() => setSelectedKycUser(null)} aria-label="Tutup detail KTP" style={{ position: 'absolute', top: '16px', right: '16px', width: '38px', height: '38px', borderRadius: '50%', border: '2px solid var(--color-ink-black)', background: 'var(--surface)', cursor: 'pointer', fontWeight: '900', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                        
+                        <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)', letterSpacing: '1px' }}>DETAIL & KELOLA VERIFIKASI IDENTITAS (KYC)</span>
+                        <h2 style={{ margin: '6px 42px 4px 0', fontSize: '1.4rem', color: 'var(--color-ink-black)', fontWeight: '800' }}>{selectedKycUser.nama_lengkap}</h2>
+                        <p style={{ margin: '0 0 16px 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Email: <strong>{selectedKycUser.email}</strong> | WhatsApp: <strong>{selectedKycUser.no_whatsapp}</strong></p>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) minmax(280px, 1.2fr)', gap: '24px', alignItems: 'start', borderTop: '2px dashed var(--border-light)', paddingTop: '16px', marginBottom: '20px' }}>
+                            <dl style={{ margin: 0, display: 'grid', gap: '12px' }}>
+                                <div>
+                                    <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800', marginBottom: '4px' }}>STATUS KYC SAAT INI</dt>
+                                    <dd style={{ margin: 0 }}>
+                                        <span style={{
+                                            backgroundColor: selectedKycUser.kyc_status === 'VERIFIED' ? '#D1FAE5' : selectedKycUser.kyc_status === 'REJECTED' ? '#FEE2E2' : '#FEF3C7',
+                                            color: selectedKycUser.kyc_status === 'VERIFIED' ? '#065F46' : selectedKycUser.kyc_status === 'REJECTED' ? '#991B1B' : '#92400E',
+                                            border: '1.5px solid ' + (selectedKycUser.kyc_status === 'VERIFIED' ? '#059669' : selectedKycUser.kyc_status === 'REJECTED' ? '#DC2626' : '#D97706'),
+                                            padding: '4px 12px', fontWeight: '800', fontSize: '0.8rem', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '6px'
+                                        }}>
+                                            <span>{selectedKycUser.kyc_status === 'VERIFIED' ? <Check size={14} strokeWidth={2.5} /> : selectedKycUser.kyc_status === 'REJECTED' ? <X size={14} strokeWidth={2.5} /> : <Clock size={14} strokeWidth={2.5} />}</span>
+                                            <span>{kycLabel(selectedKycUser.kyc_status || 'UNVERIFIED')}</span>
+                                        </span>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>NIK (NOMOR INDUK KEPENDUDUKAN)</dt>
+                                    <dd style={{ margin: '3px 0 0', fontWeight: '800', letterSpacing: '0.06em', color: selectedKycUser.kyc_nik ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                                        {selectedKycUser.kyc_nik || <em style={{ fontWeight: 'normal' }}>Belum mengisi NIK</em>}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>NAMA LENGKAP PADA KTP</dt>
+                                    <dd style={{ margin: '3px 0 0', fontWeight: '700', color: selectedKycUser.kyc_name ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                                        {selectedKycUser.kyc_name || <em style={{ fontWeight: 'normal' }}>Belum mengisi nama KTP</em>}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>ALAMAT SESUAI KTP</dt>
+                                    <dd style={{ margin: '3px 0 0', lineHeight: '1.45', color: selectedKycUser.kyc_address ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                                        {selectedKycUser.kyc_address || <em style={{ fontWeight: 'normal' }}>Belum mengisi alamat KTP</em>}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>WAKTU DIVERIFIKASI</dt>
+                                    <dd style={{ margin: '3px 0 0', fontSize: '0.85rem' }}>
+                                        {selectedKycUser.kyc_verified_at ? new Date(selectedKycUser.kyc_verified_at).toLocaleString('id-ID') : '-'}
+                                    </dd>
+                                </div>
+                                {selectedKycUser.kyc_rejection_reason && (
+                                    <div style={{ backgroundColor: '#FEE2E2', border: '1.5px solid #F87171', borderRadius: '8px', padding: '10px 12px' }}>
+                                        <dt style={{ fontSize: '0.72rem', color: '#991B1B', fontWeight: '800' }}>ALASAN PENOLAKAN</dt>
+                                        <dd style={{ margin: '3px 0 0', color: '#B91C1C', fontSize: '0.85rem', lineHeight: '1.4' }}>{selectedKycUser.kyc_rejection_reason}</dd>
+                                    </div>
+                                )}
+                            </dl>
+                            
+                            <div>
+                                <p style={{ margin: '0 0 8px', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>FOTO DOKUMEN FISIK KTP</p>
+                                {selectedKycUser.kyc_document_image ? (
+                                    <div style={{ position: 'relative' }}>
+                                        <img src={selectedKycUser.kyc_document_image} alt={`KTP ${selectedKycUser.nama_lengkap}`} style={{ display: 'block', width: '100%', maxHeight: '340px', objectFit: 'contain', background: 'var(--bg-main)', border: '2px solid var(--border-ink)', borderRadius: '12px' }} />
+                                        <a href={selectedKycUser.kyc_document_image} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '6px', fontSize: '0.75rem', color: '#3B82F6', fontWeight: '700', textDecoration: 'underline' }}>
+                                            <span>Buka gambar ukuran penuh</span>
+                                            <ExternalLink size={12} strokeWidth={2.2} />
+                                        </a>
+                                    </div>
+                                ) : (
+                                    <div style={{
+                                        padding: '40px 20px', textAlign: 'center', backgroundColor: '#F8FAFC', border: '2px dashed #CBD5E1', borderRadius: '12px', color: '#64748B'
+                                    }}>
+                                        <div style={{
+                                            width: '64px',
+                                            height: '64px',
+                                            borderRadius: '50%',
+                                            backgroundColor: '#E2E8F0',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            margin: '0 auto 10px',
+                                            color: '#64748B'
+                                        }}>
+                                            <Camera size={30} strokeWidth={2} />
+                                        </div>
+                                        <p style={{ fontWeight: '700', margin: '0 0 4px', color: '#334155', fontSize: '0.95rem' }}>Belum Ada Foto KTP</p>
+                                        <small style={{ fontSize: '0.8rem', lineHeight: '1.4', display: 'block' }}>Pengguna belum mengunggah foto KTP atau merupakan akun pengujian lama.</small>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* KONTROL AKSI ADMIN */}
+                        <div style={{ borderTop: '2px solid var(--color-ink-black)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)' }}>AKSI ADMINISTRATOR UNTUK STATUS KYC:</span>
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => handleUpdateKycStatus(selectedKycUser._id, 'VERIFIED')}
+                                    style={{
+                                        flex: 1, minWidth: '160px', padding: '10px 16px', backgroundColor: '#10B981', color: '#fff', border: '2px solid var(--color-ink-black)', borderRadius: '50px', fontWeight: '700', cursor: 'pointer', boxShadow: '2px 2px 0px var(--color-ink-black)', fontSize: '0.85rem'
+                                    }}
+                                >
+                                    ✓ Setujui / Verifikasi
+                                </button>
+                                <button
+                                    onClick={() => handleUpdateKycStatus(selectedKycUser._id, 'REJECTED')}
+                                    style={{
+                                        flex: 1, minWidth: '160px', padding: '10px 16px', backgroundColor: '#EF4444', color: '#fff', border: '2px solid var(--color-ink-black)', borderRadius: '50px', fontWeight: '700', cursor: 'pointer', boxShadow: '2px 2px 0px var(--color-ink-black)', fontSize: '0.85rem'
+                                    }}
+                                >
+                                    ✕ Tolak Verifikasi
+                                </button>
+                                <button
+                                    onClick={() => handleUpdateKycStatus(selectedKycUser._id, 'UNVERIFIED')}
+                                    style={{
+                                        flex: 1, minWidth: '160px', padding: '10px 16px', backgroundColor: '#F59E0B', color: '#fff', border: '2px solid var(--color-ink-black)', borderRadius: '50px', fontWeight: '700', cursor: 'pointer', boxShadow: '2px 2px 0px var(--color-ink-black)', fontSize: '0.85rem'
+                                    }}
+                                >
+                                    ↺ Cabut / Reset Verifikasi
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Detail Pembayaran */}
+            {selectedPaymentQuest && (
+                <div style={{
+                    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.65)', zIndex: 9998,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', overflowY: 'auto'
+                }}>
+                    <div className="clean-card" style={{ backgroundColor: 'var(--color-pure-white)', width: '100%', maxWidth: '680px', padding: '28px', position: 'relative', border: '3px solid var(--color-ink-black)', borderRadius: '20px', boxShadow: '8px 8px 0px var(--color-ink-black)' }}>
+                        <button onClick={() => setSelectedPaymentQuest(null)} aria-label="Tutup detail pembayaran" style={{ position: 'absolute', top: '16px', right: '16px', width: '38px', height: '38px', borderRadius: '50%', border: '2px solid var(--color-ink-black)', background: 'var(--surface)', cursor: 'pointer', fontWeight: '900', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                        
+                        <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)', letterSpacing: '1px' }}>RINCIAN TRANSAKSI PEMBAYARAN</span>
+                        <h2 style={{ margin: '6px 42px 4px 0', fontSize: '1.35rem', color: 'var(--color-ink-black)', fontWeight: '800' }}>
+                            {selectedPaymentQuest.payment_reference || 'Transaksi Tunai / COD'}
+                        </h2>
+                        <p style={{ margin: '0 0 16px 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                            Quest ID: <span style={{ fontFamily: 'monospace' }}>{selectedPaymentQuest._id}</span>
+                        </p>
+
+                        <div style={{ borderTop: '2px dashed var(--border-light)', paddingTop: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                            <div>
+                                <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>STATUS PEMBAYARAN</dt>
+                                <dd style={{ margin: '4px 0 0' }}>
+                                    <span style={{
+                                        padding: '4px 10px', fontWeight: '800', fontSize: '0.8rem', borderRadius: '6px',
+                                        backgroundColor: paymentStatusColor(selectedPaymentQuest.payment_status || 'NOT_REQUIRED').bg,
+                                        color: paymentStatusColor(selectedPaymentQuest.payment_status || 'NOT_REQUIRED').text,
+                                        border: `1px solid ${paymentStatusColor(selectedPaymentQuest.payment_status || 'NOT_REQUIRED').border}`,
+                                        display: 'inline-block'
+                                    }}>
+                                        {paymentStatusLabel(selectedPaymentQuest.payment_status)}
+                                    </span>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>METODE PEMBAYARAN</dt>
+                                <dd style={{ margin: '4px 0 0', fontWeight: '700', fontSize: '0.9rem' }}>
+                                    {paymentMethodIcon(selectedPaymentQuest.payment_method)}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>PEMBAYAR (KLIEN)</dt>
+                                <dd style={{ margin: '3px 0 0', fontSize: '0.85rem' }}>
+                                    <strong>{selectedPaymentQuest.pembuat_id?.nama_lengkap || 'N/A'}</strong><br/>
+                                    <span style={{ color: 'var(--text-muted)' }}>WA: {selectedPaymentQuest.pembuat_id?.no_whatsapp || '-'}</span>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>PENERIMA (PEKERJA)</dt>
+                                <dd style={{ margin: '3px 0 0', fontSize: '0.85rem' }}>
+                                    <strong>{selectedPaymentQuest.pekerja_id?.nama_lengkap || '-'}</strong><br/>
+                                    <span style={{ color: 'var(--text-muted)' }}>WA: {selectedPaymentQuest.pekerja_id?.no_whatsapp || '-'}</span>
+                                </dd>
+                            </div>
+                            <div style={{ gridColumn: 'span 2', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '12px 16px' }}>
+                                <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>RINCIAN BIAYA</dt>
+                                <dd style={{ margin: '6px 0 0', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.85rem' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Upah Jasa:</span>
+                                        <strong>Rp {selectedPaymentQuest.upah_jasa?.toLocaleString('id-ID')}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Nominal Talangan (Jastip):</span>
+                                        <strong>Rp {selectedPaymentQuest.nominal_talangan?.toLocaleString('id-ID') || 0}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #CBD5E1', paddingTop: '6px', marginTop: '4px', fontSize: '0.95rem' }}>
+                                        <span style={{ fontWeight: '800' }}>Total Transaksi:</span>
+                                        <strong style={{ color: '#065F46' }}>Rp {((selectedPaymentQuest.upah_jasa || 0) + (selectedPaymentQuest.nominal_talangan || 0)).toLocaleString('id-ID')}</strong>
+                                    </div>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>WAKTU DIBUAT</dt>
+                                <dd style={{ margin: '3px 0 0', fontSize: '0.85rem' }}>
+                                    {selectedPaymentQuest.created_at ? new Date(selectedPaymentQuest.created_at).toLocaleString('id-ID') : '-'}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '800' }}>WAKTU LUNAS / DIPERBARUI</dt>
+                                <dd style={{ margin: '3px 0 0', fontSize: '0.85rem' }}>
+                                    {selectedPaymentQuest.paid_at ? new Date(selectedPaymentQuest.paid_at).toLocaleString('id-ID') : selectedPaymentQuest.payment_updated_at ? new Date(selectedPaymentQuest.payment_updated_at).toLocaleString('id-ID') : '-'}
+                                </dd>
+                            </div>
+                            {selectedPaymentQuest.refund_reason && (
+                                <div style={{ gridColumn: 'span 2', backgroundColor: '#FEE2E2', border: '1.5px solid #F87171', borderRadius: '8px', padding: '10px 12px' }}>
+                                    <dt style={{ fontSize: '0.72rem', color: '#991B1B', fontWeight: '800' }}>CATATAN REFUND ADMINISTRATOR</dt>
+                                    <dd style={{ margin: '3px 0 0', color: '#B91C1C', fontSize: '0.85rem', lineHeight: '1.4' }}>{selectedPaymentQuest.refund_reason}</dd>
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ borderTop: '2px solid var(--color-ink-black)', paddingTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            {selectedPaymentQuest.payment_status === 'PAID' && (
+                                <button
+                                    onClick={() => handleProcessRefund(selectedPaymentQuest._id)}
+                                    style={{
+                                        padding: '10px 18px', backgroundColor: '#EF4444', color: '#fff', border: '2px solid var(--color-ink-black)', borderRadius: '50px', fontWeight: '700', cursor: 'pointer', boxShadow: '2px 2px 0px var(--color-ink-black)', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '6px'
+                                    }}
+                                >
+                                    <RotateCcw size={15} strokeWidth={2.2} /> Proses Refund Dana Transaksi
+                                </button>
+                            )}
+                            <button
+                                onClick={() => setSelectedPaymentQuest(null)}
+                                style={{
+                                    padding: '10px 20px', backgroundColor: 'var(--color-ink-black)', color: '#fff', border: 'none', borderRadius: '50px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem'
+                                }}
+                            >
+                                Tutup
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Modal Konfirmasi Logout Admin */}
             {showLogoutModal && (
                 <div style={{
@@ -1089,7 +1722,21 @@ export default function AdminDashboard() {
                         padding: '24px', position: 'relative', textAlign: 'center', border: '3px solid var(--color-ink-black)',
                         boxShadow: 'var(--shadow-card, 6px 6px 0px #000)'
                     }}>
-                        <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🚪</div>
+                        <div style={{
+                            width: '64px',
+                            height: '64px',
+                            backgroundColor: 'rgba(255, 112, 93, 0.12)',
+                            borderRadius: '50%',
+                            border: '2px solid var(--color-ink-black)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            margin: '0 auto 12px',
+                            color: 'var(--color-coral-pop, #ff705d)',
+                            boxShadow: '2px 2px 0px var(--color-ink-black)'
+                        }}>
+                            <LogOut size={30} strokeWidth={2.2} />
+                        </div>
                         <h2 style={{ fontSize: '1.25rem', fontWeight: '900', marginBottom: '8px', color: 'var(--color-ink-black)', fontFamily: 'var(--font-outfit)' }}>KELUAR ADMIN</h2>
                         <p style={{ fontSize: '13.5px', color: 'var(--color-stone-gray)', marginBottom: '20px', lineHeight: '1.5', fontFamily: 'var(--font-inter)' }}>
                             Apakah Anda yakin ingin keluar dari panel administrator Jasa Warga?

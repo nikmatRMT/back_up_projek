@@ -1,0 +1,15 @@
+const express = require('express');
+const requireAuth = require('../middleware/authMiddleware');
+const controller = require('../controllers/chatNegotiationController');
+const router = express.Router();
+router.use(requireAuth);
+router.get('/active', controller.getActiveConversation);
+router.get('/my-negotiations', controller.getMyNegotiations);
+router.post('/quests/:questId/conversations', controller.openNegotiation);
+router.get('/quests/:questId/conversations', controller.listQuestConversations);
+router.get('/conversations/:conversationId/messages', controller.getMessages);
+router.post('/conversations/:conversationId/messages', controller.sendMessage);
+router.post('/conversations/:conversationId/offers', controller.sendOffer);
+router.post('/conversations/:conversationId/accept-listed-price', controller.acceptListedPrice);
+router.put('/conversations/:conversationId/offers/:messageId', controller.respondOffer);
+module.exports = router;

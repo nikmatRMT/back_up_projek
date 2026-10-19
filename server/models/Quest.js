@@ -56,9 +56,32 @@ const questSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['OPEN', 'TAKEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELED'],
+        enum: ['OPEN', 'TAKEN', 'IN_PROGRESS', 'AWAITING_PAYMENT', 'COMPLETED', 'CANCELED'],
         default: 'OPEN'
     },
+    negotiation_status: {
+        type: String,
+        enum: ['NOT_STARTED', 'PENDING', 'AGREED'],
+        default: 'NOT_STARTED'
+    },
+    agreed_upah: { type: Number, default: null },
+    agreed_duration: { type: String, default: null },
+    payment_required: { type: Boolean, default: false },
+    payment_status: {
+        type: String,
+        enum: ['NOT_REQUIRED', 'UNPAID', 'PENDING', 'PAID', 'FAILED', 'EXPIRED', 'REFUNDED'],
+        default: 'NOT_REQUIRED'
+    },
+    payment_method: { type: String, default: null },
+    payment_reference: { type: String, default: null },
+    payment_updated_at: { type: Date, default: null },
+    paid_at: { type: Date, default: null },
+    chat_status: {
+        type: String,
+        enum: ['ACTIVE', 'RETENTION', 'DELETED'],
+        default: 'ACTIVE'
+    },
+    chat_delete_at: { type: Date, default: null },
     taken_at: {
         type: Date,
         default: null
@@ -78,6 +101,8 @@ const questSchema = new mongoose.Schema({
     completed_at: {
         type: Date
     },
+    completion_verified_at: { type: Date, default: null },
+    credited_at: { type: Date, default: null },
     expired_at: {
         type: Date
     },
